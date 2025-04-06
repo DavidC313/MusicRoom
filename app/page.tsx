@@ -2,12 +2,21 @@
 
 import { useAuth } from '@/contexts/AuthContext';
 import Login from '@/components/Login';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import Head from 'next/head';
 import MusicControls from '../components/MusicControls'; // Direct Import (No SSR)
 import TestAuth from '@/components/TestAuth';
 
 export default function Home() {
     const { user, logout } = useAuth();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (user) {
+            router.push('/music-room');
+        }
+    }, [user, router]);
 
     if (user) {
         return (
