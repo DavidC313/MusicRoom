@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import Image from 'next/image';
+import Link from 'next/link';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -13,38 +15,72 @@ export default function Login() {
     e.preventDefault();
     try {
       await login(email, password);
-      // Redirect or handle successful login
     } catch (error) {
       setError('Failed to login');
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label htmlFor="email">Email</label>
-        <input
-          type="email"
-          id="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-2 border rounded"
-        />
+    <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md bg-gray-800 rounded-xl shadow-2xl p-8 space-y-6">
+        <div className="flex flex-col items-center space-y-4">
+          <Image
+            src="/musicroom.webp"
+            alt="Music Room Logo"
+            width={300}
+            height={200}
+            className="rounded-lg shadow-lg"
+            priority
+          />
+          <h1 className="text-4xl font-bold text-white tracking-wide">MusicRoom</h1>
+          <p className="text-gray-400 text-sm">Your personal music creation space</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-300">Email</label>
+            <input
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter your email"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-300">Password</label>
+            <input
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter your password"
+              required
+            />
+          </div>
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <button 
+            type="submit" 
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.02]"
+          >
+            Login
+          </button>
+          <div className="text-center">
+            <p className="text-gray-400 text-sm">
+              Don't have an account?{' '}
+              <Link 
+                href="/register" 
+                className="text-blue-500 hover:text-blue-400 font-medium transition-colors"
+              >
+                Create An Account
+              </Link>
+            </p>
+          </div>
+        </form>
       </div>
-      <div>
-        <label htmlFor="password">Password</label>
-        <input
-          type="password"
-          id="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 border rounded"
-        />
-      </div>
-      {error && <p className="text-red-500">{error}</p>}
-      <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded">
-        Login
-      </button>
-    </form>
+    </div>
   );
 } 
