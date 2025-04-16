@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import * as Tone from 'tone';
-import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic } from 'react-icons/fa';
+import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload } from 'react-icons/fa';
 
 const SCALES = {
     'C Major': ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
@@ -144,6 +144,7 @@ const NOTE_LENGTHS = {
 export default function MusicMaker() {
     const [notes, setNotes] = useState([]);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [tempo, setTempo] = useState(120);
     const [selectedInstrument, setSelectedInstrument] = useState('piano');
     const [selectedScale, setSelectedScale] = useState('C Major');
@@ -162,7 +163,12 @@ export default function MusicMaker() {
             try {
                 await Tone.start();
                 if (isMounted) {
-                    synthRef.current = INSTRUMENTS[selectedInstrument].synth().toDestination();
+                    // Create a master volume control
+                    const masterVolume = new Tone.Volume(-6).toDestination();
+                    
+                    // Initialize the synth
+                    synthRef.current = INSTRUMENTS[selectedInstrument].synth();
+                    synthRef.current.connect(masterVolume);
                 }
             } catch (error) {
                 console.error('Error initializing synth:', error);
@@ -292,7 +298,7 @@ export default function MusicMaker() {
             await Tone.start();
             
             const sortedNotes = [...notes].sort((a, b) => a.x - b.x);
-            const startTime = Tone.now() + 0.1; // Add a small buffer
+            const startTime = Tone.now() + 0.1;
             
             for (const note of sortedNotes) {
                 const noteTime = startTime + (note.x * (60 / tempo));
@@ -368,6 +374,72 @@ export default function MusicMaker() {
         localStorage.removeItem('compositions');
     };
 
+    const exportToMP3 = async () => {
+        if (isExporting || notes.length === 0) return;
+
+        try {
+            setIsExporting(true);
+            await Tone.start();
+            
+            // Create a temporary synth for recording
+            const recordingSynth = INSTRUMENTS[selectedInstrument].synth();
+            const recorder = new Tone.Recorder();
+            recordingSynth.connect(recorder);
+            
+            // Start recording
+            await recorder.start();
+            
+            // Play the sequence
+            const sortedNotes = [...notes].sort((a, b) => a.x - b.x);
+            
+            for (const note of sortedNotes) {
+                const noteTime = note.x * (60 / tempo);
+                const scaleNotes = SCALES[selectedScale];
+                const noteIndex = scaleNotes.length - 1 - (note.y % scaleNotes.length);
+                const octave = Math.floor(note.y / scaleNotes.length) + 4;
+                const noteName = `${scaleNotes[noteIndex]}${octave}`;
+                
+                setTimeout(() => {
+                    recordingSynth.triggerAttackRelease(
+                        noteName,
+                        note.length || noteLength
+                    );
+                }, noteTime * 1000);
+            }
+            
+            // Wait for the last note to finish plus buffer
+            const lastNote = sortedNotes[sortedNotes.length - 1];
+            const totalDuration = (lastNote.x * (60 / tempo)) + 2.0;
+            
+            setTimeout(async () => {
+                try {
+                    // Stop recording
+                    const recording = await recorder.stop();
+                    
+                    // Create download link
+                    const url = URL.createObjectURL(recording);
+                    const anchor = document.createElement('a');
+                    anchor.download = `composition-${new Date().toISOString()}.wav`;
+                    anchor.href = url;
+                    anchor.click();
+                    
+                    // Clean up
+                    URL.revokeObjectURL(url);
+                    recordingSynth.dispose();
+                    recorder.dispose();
+                    setIsExporting(false);
+                } catch (error) {
+                    console.error('Error stopping recording:', error);
+                    setIsExporting(false);
+                }
+            }, totalDuration * 1000);
+            
+        } catch (error) {
+            console.error('Error during export:', error);
+            setIsExporting(false);
+        }
+    };
+
     useEffect(() => {
         const saved = localStorage.getItem('compositions');
         if (saved) {
@@ -402,6 +474,13 @@ export default function MusicMaker() {
                     className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-2"
                 >
                     <FaSave /> Save
+                </button>
+                <button
+                    onClick={exportToMP3}
+                    disabled={isExporting || notes.length === 0}
+                    className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:bg-gray-400 flex items-center gap-2"
+                >
+                    <FaDownload /> {isExporting ? 'Exporting...' : 'Export'}
                 </button>
                 <select
                     value={tempo}
