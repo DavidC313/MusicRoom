@@ -1,9 +1,9 @@
 'use client';
 
 import { useAuth } from '@/contexts/AuthContext';
-import MusicControls from '@/components/MusicControls';
 import Head from 'next/head';
 import Link from 'next/link';
+import MusicMaker from '@/components/MusicMaker';
 
 export default function MusicRoom() {
     const { user, logout } = useAuth();
@@ -46,7 +46,7 @@ export default function MusicRoom() {
                 </header>
 
                 <div className="flex-1 p-6">
-                    <MusicControls />
+                    <MusicMaker />
                 </div>
             </main>
         </div>
