@@ -10,8 +10,8 @@ export default function MusicRoom() {
 
     if (!user) {
         return (
-            <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4">
-                <div className="text-gray-900 text-center space-y-4">
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+                <div className="text-white text-center space-y-4">
                     <h1 className="text-2xl">Please log in to access the Music Room</h1>
                     <Link 
                         href="/" 
@@ -25,17 +25,17 @@ export default function MusicRoom() {
     }
 
     return (
-        <div className="min-h-screen bg-white">
+        <div className="min-h-screen bg-gray-900">
             <Head>
                 <title>Music Room</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             </Head>
 
             <main className="flex flex-col min-h-screen">
-                <header className="bg-gray-100 p-4 flex justify-between items-center border-b border-gray-200">
-                    <h1 className="text-gray-900 text-xl font-bold">Music Room</h1>
+                <header className="bg-gray-800 p-4 flex justify-between items-center border-b border-gray-700">
+                    <h1 className="text-white text-xl font-bold">Music Room</h1>
                     <div className="flex items-center space-x-4">
-                        <span className="text-gray-600">Welcome, {user.email}</span>
+                        <span className="text-gray-300">Welcome, {user.email}</span>
                         <button 
                             onClick={logout} 
                             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
