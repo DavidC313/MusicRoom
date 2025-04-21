@@ -492,18 +492,19 @@ export default function MusicMaker() {
     // Initialize audio
     useEffect(() => {
         let isMounted = true;
+        let masterVolume = null;
         
         const initAudio = async () => {
             try {
-                console.log('Initializing audio...');
+                // Only initialize audio context if it's not already running
                 if (Tone.context.state !== 'running') {
-                    await Tone.start();
-                    console.log('Audio context started');
+                    console.log('Audio context not running, waiting for user interaction');
+                    return;
                 }
                 
                 if (isMounted) {
                     // Create a master volume control with proper gain staging
-                    const masterVolume = new Tone.Volume(-6).toDestination();
+                    masterVolume = new Tone.Volume(-6).toDestination();
                     console.log('Master volume created');
                     
                     // Initialize synths and effects for each track with proper timing
@@ -514,7 +515,8 @@ export default function MusicMaker() {
                             if (instrument.isDrum) {
                                 const drumPlayer = instrument.synth();
                                 synthRefs.current[track.id] = drumPlayer;
-                                console.log(`Drum player initialized for track ${track.id}`);
+                                drumPlayer.connect(masterVolume);
+                                console.log(`Drum player initialized and connected for track ${track.id}`);
                             } else {
                                 const synth = instrument.synth();
                                 synthRefs.current[track.id] = synth;
@@ -672,66 +674,123 @@ export default function MusicMaker() {
         playNote();
     };
 
-    const playSequence = async () => {
+    // Add this new function before the playSequence function
+    const initializeAudioAndTransport = async () => {
         try {
+            // Ensure audio context is running
             if (Tone.context.state !== 'running') {
                 await Tone.start();
+                console.log('Audio context started');
             }
 
-            // Stop any existing playback
+            // Create master volume control if not exists
+            if (!Tone.getDestination().connected) {
+                const masterVolume = new Tone.Volume(-6).toDestination();
+                console.log('Master volume created');
+            }
+
+            // Initialize transport
+            Tone.Transport.bpm.value = tempo;
+            console.log(`Tempo set to ${tempo} BPM`);
+
+            // Ensure transport is stopped and cleared
             Tone.Transport.stop();
             Tone.Transport.cancel();
+            console.log('Transport cleared');
 
-            // Set the tempo
-            Tone.Transport.bpm.value = tempo;
+            // Initialize all synths and effects
+            for (const track of tracks) {
+                if (!synthRefs.current[track.id]) {
+                    console.log(`Initializing synth for track ${track.id}`);
+                    const instrument = INSTRUMENTS[track.instrument];
+                    if (instrument.isDrum) {
+                        const drumPlayer = instrument.synth();
+                        synthRefs.current[track.id] = drumPlayer;
+                        drumPlayer.connect(Tone.getDestination());
+                    } else {
+                        const synth = instrument.synth();
+                        synthRefs.current[track.id] = synth;
+                        synth.connect(Tone.getDestination());
+                    }
+                }
+
+                // Initialize effects if needed
+                if (track.effects.length > 0 && !effectRefs.current[track.id]) {
+                    console.log(`Initializing effects for track ${track.id}`);
+                    effectRefs.current[track.id] = [];
+                    let lastNode = synthRefs.current[track.id];
+                    
+                    track.effects.forEach(effectName => {
+                        const effect = EFFECTS[effectName].effect();
+                        effectRefs.current[track.id].push(effect);
+                        lastNode.connect(effect);
+                        lastNode = effect;
+                    });
+                    lastNode.connect(Tone.getDestination());
+                }
+            }
+
+            return true;
+        } catch (error) {
+            console.error('Error initializing audio and transport:', error);
+            return false;
+        }
+    };
+
+    // Modify the playSequence function to use the new initialization
+    const playSequence = async () => {
+        try {
+            // Initialize audio and transport
+            const initialized = await initializeAudioAndTransport();
+            if (!initialized) {
+                throw new Error('Failed to initialize audio and transport');
+            }
 
             // Calculate time per step based on tempo
             const stepsPerBeat = 4; // 16th notes per beat
             const beatsPerBar = 4;
             const stepsPerBar = stepsPerBeat * beatsPerBar;
             const timePerStep = (60 / tempo) / stepsPerBeat;
+            console.log(`Time per step: ${timePerStep}s`);
+
+            // Get the master volume
+            const masterVolume = Tone.getDestination();
 
             // Schedule all notes for all tracks
             for (const track of tracks) {
+                if (track.muted) {
+                    console.log(`Track ${track.id} is muted, skipping`);
+                    continue;
+                }
+
+                // Initialize synth if needed
                 if (!synthRefs.current[track.id]) {
+                    console.log(`Initializing synth for track ${track.id}`);
                     const instrument = INSTRUMENTS[track.instrument];
                     if (instrument.isDrum) {
-                        // Initialize drum player with proper timing
                         const drumPlayer = instrument.synth();
                         synthRefs.current[track.id] = drumPlayer;
-                        
-                        // Initialize effects array for this track
-                        effectRefs.current[track.id] = [];
-                        
-                        // Connect effects if any
-                        if (track.effects.length > 0) {
-                            const effects = track.effects.map(effectName => 
-                                EFFECTS[effectName].effect()
-                            );
-                            effectRefs.current[track.id] = effects;
-                            
-                            // Connect effects in chain with proper timing
-                            let lastNode = Tone.Destination;
-                            effects.forEach(effect => {
-                                if (typeof effect.connect === 'function') {
-                                    effect.connect(lastNode);
-                                }
-                            });
-                        }
+                        drumPlayer.connect(masterVolume);
                     } else {
                         const synth = instrument.synth();
                         synthRefs.current[track.id] = synth;
-                        effectRefs.current[track.id] = [];
-                        
-                        let lastNode = synth;
-                        track.effects.forEach(effectName => {
-                            const effect = EFFECTS[effectName].effect();
-                            effectRefs.current[track.id].push(effect);
-                            effect.connect(lastNode);
-                            lastNode = effect;
-                        });
-                        lastNode.toDestination();
+                        synth.connect(masterVolume);
                     }
+                }
+
+                // Initialize effects if needed
+                if (track.effects.length > 0 && !effectRefs.current[track.id]) {
+                    console.log(`Initializing effects for track ${track.id}`);
+                    effectRefs.current[track.id] = [];
+                    let lastNode = synthRefs.current[track.id];
+                    
+                    track.effects.forEach(effectName => {
+                        const effect = EFFECTS[effectName].effect();
+                        effectRefs.current[track.id].push(effect);
+                        lastNode.connect(effect);
+                        lastNode = effect;
+                    });
+                    lastNode.connect(masterVolume);
                 }
 
                 // Sort notes by time and group by position
@@ -744,6 +803,7 @@ export default function MusicMaker() {
                     noteGroups.set(note.time, group);
                 });
 
+                // Schedule notes
                 noteGroups.forEach((notes, time) => {
                     const bar = Math.floor(time / stepsPerBar);
                     const step = time % stepsPerBar;
@@ -754,43 +814,65 @@ export default function MusicMaker() {
                         const noteTime = `${baseTime}:${offset}`;
                         
                         Tone.Transport.schedule((time) => {
-                            if (!track.muted) {
-                                try {
-                                    const synth = synthRefs.current[track.id];
-                                    if (INSTRUMENTS[track.instrument].isDrum) {
-                                        const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
-                                        if (drumType && synth && typeof synth.player === 'function') {
-                                            synth.player(drumType).start(time);
-                                        }
-                                    } else if (synth && typeof synth.triggerAttackRelease === 'function') {
-                                        const noteLengthInSeconds = (60 / tempo) * 
-                                            (note.length === '1n' ? 4 : 
-                                             note.length === '2n' ? 2 :
-                                             note.length === '4n' ? 1 :
-                                             note.length === '8n' ? 0.5 :
-                                             note.length === '16n' ? 0.25 : 0.5);
-                                        
-                                        synth.triggerAttackRelease(
-                                            note.pitch,
-                                            noteLengthInSeconds,
-                                            time
-                                        );
-                                    }
-                                } catch (error) {
-                                    console.error('Error playing note:', error);
+                            try {
+                                const synth = synthRefs.current[track.id];
+                                if (!synth) {
+                                    console.error(`No synth found for track ${track.id}`);
+                                    return;
                                 }
+
+                                if (INSTRUMENTS[track.instrument].isDrum) {
+                                    const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
+                                    if (drumType && typeof synth.player === 'function') {
+                                        synth.player(drumType).start(time);
+                                    }
+                                } else if (typeof synth.triggerAttackRelease === 'function') {
+                                    const noteLengthInSeconds = (60 / tempo) * 
+                                        (note.length === '1n' ? 4 : 
+                                         note.length === '2n' ? 2 :
+                                         note.length === '4n' ? 1 :
+                                         note.length === '8n' ? 0.5 :
+                                         note.length === '16n' ? 0.25 : 0.5);
+                                    
+                                    synth.triggerAttackRelease(
+                                        note.pitch,
+                                        noteLengthInSeconds,
+                                        time
+                                    );
+                                }
+                            } catch (error) {
+                                console.error(`Error playing note in track ${track.id}:`, error);
                             }
                         }, noteTime);
                     });
                 });
             }
 
-            // Start playback immediately
+            // Start playback with a small offset to ensure proper timing
             setIsPlaying(true);
-            Tone.Transport.start('+0.1'); // Start with a small offset to ensure proper timing
+            
+            // Start transport with a small delay to ensure everything is ready
+            setTimeout(() => {
+                Tone.Transport.start('+0.1');
+                console.log('Transport started for playback');
+            }, 100);
+
+            // Update playback position
+            const updatePosition = () => {
+                if (isPlaying) {
+                    const position = Tone.Transport.position;
+                    setPlaybackPosition(position);
+                    requestAnimationFrame(updatePosition);
+                }
+            };
+            updatePosition();
+
         } catch (error) {
             console.error('Playback error:', error);
             setIsPlaying(false);
+            // Clean up on error
+            Tone.Transport.stop();
+            Tone.Transport.cancel();
         }
     };
 
@@ -1569,11 +1651,41 @@ export default function MusicMaker() {
         updateDrumVolumes();
     }, [drumVolumes, tracks]);
 
+    // Add a new function to handle play button click
+    const handlePlayButtonClick = async () => {
+        try {
+            console.log('Play button clicked');
+            
+            // Ensure audio context is running
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+                console.log('Audio context started');
+            }
+
+            // Initialize audio and transport
+            const initialized = await initializeAudioAndTransport();
+            if (!initialized) {
+                throw new Error('Failed to initialize audio and transport');
+            }
+
+            // Set tempo
+            Tone.Transport.bpm.value = tempo;
+            console.log(`Tempo set to ${tempo} BPM`);
+
+            // Start playback
+            await playSequence();
+            console.log('Playback started');
+
+        } catch (error) {
+            console.error('Error starting playback:', error);
+        }
+    };
+
     return (
         <div className="flex flex-col items-center space-y-4 p-4">
             <div className="flex flex-wrap gap-4 justify-center">
                 <button
-                    onClick={playSequence}
+                    onClick={handlePlayButtonClick}
                     disabled={isPlaying}
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-700 flex items-center gap-2"
                 >

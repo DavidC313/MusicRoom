@@ -203,15 +203,15 @@ export default function MusicControls() {
         if (!isInitialized) return;
         
         try {
-            Tone.Transport.stop();
-            Tone.Transport.cancel();
+        Tone.Transport.stop();
+        Tone.Transport.cancel();
             Tone.Transport.bpm.value = tempo;
             
             const loop = new Tone.Loop((time) => {
-                handlePlayAll();
+            handlePlayAll();
             }, '1m').start(0);
             
-            Tone.Transport.start();
+        Tone.Transport.start();
         } catch (error) {
             console.error('Error starting loop:', error);
         }
