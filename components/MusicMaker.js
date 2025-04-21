@@ -12,6 +12,18 @@ const SCALES = {
     'Pentatonic': ['C', 'D', 'E', 'G', 'A']
 };
 
+// Add color mapping for notes
+const NOTE_COLORS = {
+    'C': '#FF6B6B',  // Red
+    'D': '#4ECDC4',  // Teal
+    'E': '#45B7D1',  // Blue
+    'F': '#96CEB4',  // Green
+    'G': '#FFEEAD',  // Yellow
+    'A': '#D4A5A5',  // Pink
+    'B': '#9B59B6',  // Purple
+    'F#': '#2ECC71', // Emerald
+};
+
 const INSTRUMENTS = {
     piano: {
         name: 'Piano',
@@ -426,22 +438,23 @@ export default function MusicMaker() {
         const rows = Math.floor(height / gridSize);
         const cols = Math.floor(width / gridSize);
 
-        // Clear canvas
-        ctx.fillStyle = '#ffffff';
+        // Clear canvas with a light background
+        ctx.fillStyle = '#f8f9fa';
         ctx.fillRect(0, 0, width, height);
 
-        // Draw scale notes
+        // Draw scale notes with alternating colors
         const scaleNotes = SCALES[selectedScale];
-        ctx.fillStyle = '#f3f4f6';
-        scaleNotes.forEach((_, index) => {
+        scaleNotes.forEach((note, index) => {
             const y = rows - index - 1;
+            ctx.fillStyle = index % 2 === 0 ? '#ffffff' : '#f0f2f5';
             ctx.fillRect(0, y * gridSize, width, gridSize);
         });
 
-        // Draw grid
-        ctx.strokeStyle = '#e5e7eb';
+        // Draw grid lines with subtle colors
+        ctx.strokeStyle = '#e9ecef';
         ctx.lineWidth = 1;
 
+        // Draw horizontal lines
         for (let i = 0; i <= rows; i++) {
             ctx.beginPath();
             ctx.moveTo(0, i * gridSize);
@@ -449,6 +462,7 @@ export default function MusicMaker() {
             ctx.stroke();
         }
 
+        // Draw vertical lines
         for (let i = 0; i <= cols; i++) {
             ctx.beginPath();
             ctx.moveTo(i * gridSize, 0);
@@ -456,17 +470,28 @@ export default function MusicMaker() {
             ctx.stroke();
         }
 
-        // Draw notes for the selected track
+        // Draw notes for the selected track with rounded corners and note-specific colors
         const selectedTrackData = tracks.find(t => t.id === selectedTrack);
         if (selectedTrackData) {
             selectedTrackData.notes.forEach(note => {
-                ctx.fillStyle = note === currentNote ? '#ef4444' : '#3b82f6';
-                ctx.fillRect(
-                    note.x * gridSize,
-                    note.y * gridSize,
-                    gridSize,
-                    gridSize
-                );
+                const x = note.x * gridSize;
+                const y = note.y * gridSize;
+                const size = gridSize;
+                
+                // Get the note name from the pitch
+                const noteName = note.pitch.replace(/[0-9]/g, '');
+                
+                // Draw note with rounded corners and note-specific color
+                ctx.beginPath();
+                ctx.roundRect(x, y, size, size, 4);
+                ctx.fillStyle = note === currentNote ? '#4a90e2' : (NOTE_COLORS[noteName] || '#6c757d');
+                ctx.fill();
+                
+                // Add subtle shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+                ctx.shadowBlur = 2;
+                ctx.shadowOffsetX = 1;
+                ctx.shadowOffsetY = 1;
             });
         }
     }, [tracks, currentNote, selectedScale, selectedTrack]);
