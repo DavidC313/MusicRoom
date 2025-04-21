@@ -110,47 +110,76 @@ const INSTRUMENTS = {
             const drumPlayer = {
                 player: (name) => ({
                     start: (time) => {
-                        switch (name) {
-                            case 'kick':
-                                kick.triggerAttackRelease("C1", "8n", time);
-                                break;
-                            case 'snare':
-                                snare.triggerAttackRelease("8n", time);
-                                break;
-                            case 'hihat':
-                                hihat.triggerAttackRelease("8n", time);
-                                break;
-                            case 'hihatOpen':
-                                hihat.triggerAttackRelease("8n", time);
-                                break;
-                            case 'tomLow':
-                                tomLow.triggerAttackRelease("C2", "8n", time);
-                                break;
-                            case 'tomMid':
-                                tomMid.triggerAttackRelease("C3", "8n", time);
-                                break;
-                            case 'tomHigh':
-                                tomHigh.triggerAttackRelease("C4", "8n", time);
-                                break;
-                            case 'crash':
-                                crash.triggerAttackRelease("8n", time);
-                                break;
-                            case 'ride':
-                                ride.triggerAttackRelease("8n", time);
-                                break;
-                            case 'clap':
-                                clap.triggerAttackRelease("8n", time);
-                                break;
-                            case 'cowbell':
-                                cowbell.triggerAttackRelease("C5", "8n", time);
-                                break;
+                        try {
+                            switch (name) {
+                                case 'kick':
+                                    kick.triggerAttackRelease("C1", "8n", time);
+                                    break;
+                                case 'snare':
+                                    snare.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'hihat':
+                                    hihat.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'hihatOpen':
+                                    hihat.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'tomLow':
+                                    tomLow.triggerAttackRelease("C2", "8n", time);
+                                    break;
+                                case 'tomMid':
+                                    tomMid.triggerAttackRelease("C3", "8n", time);
+                                    break;
+                                case 'tomHigh':
+                                    tomHigh.triggerAttackRelease("C4", "8n", time);
+                                    break;
+                                case 'crash':
+                                    crash.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'ride':
+                                    ride.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'clap':
+                                    clap.triggerAttackRelease("8n", time);
+                                    break;
+                                case 'cowbell':
+                                    cowbell.triggerAttackRelease("C5", "8n", time);
+                                    break;
+                                default:
+                                    console.warn(`Unknown drum type: ${name}`);
+                            }
+                        } catch (error) {
+                            console.error(`Error playing drum ${name}:`, error);
                         }
                     }
                 }),
+                connect: (destination) => {
+                    try {
+                        // Connect all drum synths to the destination
+                        [kick, snare, hihat, tomLow, tomMid, tomHigh, crash, ride, clap, cowbell].forEach(synth => {
+                            if (synth) {
+                                synth.connect(destination);
+                                console.log(`Connected ${synth.constructor.name} to destination`);
+                            } else {
+                                console.warn('Attempted to connect undefined synth');
+                            }
+                        });
+                    } catch (error) {
+                        console.error('Error connecting drum synths:', error);
+                    }
+                },
                 dispose: () => {
-                    [kick, snare, hihat, tomLow, tomMid, tomHigh, crash, ride, clap, cowbell].forEach(synth => {
-                        synth.dispose();
-                    });
+                    try {
+                        // Dispose all drum synths
+                        [kick, snare, hihat, tomLow, tomMid, tomHigh, crash, ride, clap, cowbell].forEach(synth => {
+                            if (synth) {
+                                synth.dispose();
+                                console.log(`Disposed ${synth.constructor.name}`);
+                            }
+                        });
+                    } catch (error) {
+                        console.error('Error disposing drum synths:', error);
+                    }
                 }
             };
 
@@ -167,7 +196,25 @@ const INSTRUMENTS = {
             'C4': 'crash',
             'D4': 'ride',
             'E4': 'clap',
-            'F4': 'cowbell'
+            'F4': 'cowbell',
+            'G4': 'kick',
+            'A4': 'snare',
+            'B4': 'hihat',
+            'C5': 'hihatOpen',
+            'D5': 'tomLow',
+            'E5': 'tomMid',
+            'F5': 'tomHigh',
+            'G5': 'crash',
+            'A5': 'ride',
+            'B5': 'clap',
+            'C6': 'cowbell',
+            'D6': 'kick',
+            'E6': 'snare',
+            'F6': 'hihat',
+            'G6': 'hihatOpen',
+            'A6': 'tomLow',
+            'B6': 'tomMid',
+            'C7': 'tomHigh'
         },
         volumeControls: {
             kick: { min: -24, max: 0, default: -6 },
@@ -360,6 +407,8 @@ export default function MusicMaker() {
     const [resizeStart, setResizeStart] = useState(null);
     const [copiedNotes, setCopiedNotes] = useState([]);
     const [quantizeValue, setQuantizeValue] = useState(1); // 1 = no quantization
+    const [audioContext, setAudioContext] = useState(null);
+    const [currentStep, setCurrentStep] = useState(0);
 
     // Draw the grid and notes
     useEffect(() => {
@@ -515,6 +564,7 @@ export default function MusicMaker() {
                             if (instrument.isDrum) {
                                 const drumPlayer = instrument.synth();
                                 synthRefs.current[track.id] = drumPlayer;
+                                // Connect drum player to master volume
                                 drumPlayer.connect(masterVolume);
                                 console.log(`Drum player initialized and connected for track ${track.id}`);
                             } else {
@@ -655,16 +705,22 @@ export default function MusicMaker() {
                 if (synth) {
                     if (INSTRUMENTS[track.instrument].isDrum) {
                         const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
-                        if (drumType && typeof synth.player === 'function') {
-                            console.log(`Playing drum type: ${drumType}`);
-                            synth.player(drumType).start(Tone.now());
+                        if (drumType) {
+                            console.log(`Playing drum type: ${drumType} for pitch ${pitch}`);
+                            if (typeof synth.player === 'function') {
+                                synth.player(drumType).start(Tone.now());
+                            } else {
+                                console.error('Drum player function not found');
+                            }
+                        } else {
+                            console.warn(`No drum type mapped for pitch ${pitch}`);
                         }
                     } else if (typeof synth.triggerAttackRelease === 'function') {
                         console.log(`Playing note: ${pitch}`);
                         synth.triggerAttackRelease(pitch, '8n', Tone.now());
                     }
                 } else {
-                    console.log('Synth not found for track');
+                    console.error('Synth not found for track');
                 }
             } catch (error) {
                 console.error('Error playing note:', error);
@@ -1679,6 +1735,39 @@ export default function MusicMaker() {
         } catch (error) {
             console.error('Error starting playback:', error);
         }
+    };
+
+    useEffect(() => {
+        // Initialize AudioContext on component mount
+        const initAudioContext = () => {
+            if (!audioContext) {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                setAudioContext(ctx);
+            }
+        };
+
+        // Add event listener for user interaction
+        const handleUserInteraction = () => {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        };
+
+        document.addEventListener('click', handleUserInteraction);
+        document.addEventListener('keydown', handleUserInteraction);
+
+        return () => {
+            document.removeEventListener('click', handleUserInteraction);
+            document.removeEventListener('keydown', handleUserInteraction);
+        };
+    }, [audioContext]);
+
+    const handlePlay = () => {
+        if (!audioContext) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            setAudioContext(ctx);
+        }
+        setIsPlaying(true);
     };
 
     return (
