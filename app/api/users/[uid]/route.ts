@@ -61,6 +61,7 @@ export async function GET(
                 aboutMe: '',
                 favoriteGenres: '',
                 instruments: '',
+                profileImage: '',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
@@ -93,6 +94,7 @@ export async function GET(
             aboutMe: data.aboutMe || '',
             favoriteGenres: data.favoriteGenres || '',
             instruments: data.instruments || '',
+            profileImage: data.profileImage || '',
             createdAt: data.createdAt || new Date().toISOString(),
             updatedAt: data.updatedAt || new Date().toISOString()
         });

@@ -2,285 +2,262 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { storage } from '@/utils/firebase-client';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import Image from 'next/image';
 
-const defaultProfileData = {
-    displayName: '',
-    aboutMe: '',
-    favoriteGenres: '',
-    instruments: ''
-};
-
-export default function Profile() {
-    const { user } = useAuth();
-    const [isEditing, setIsEditing] = useState(false);
-    const [profileData, setProfileData] = useState(defaultProfileData);
+export default function ProfilePage() {
+    const { user, loading } = useAuth();
+    const router = useRouter();
+    const [profileData, setProfileData] = useState({
+        displayName: '',
+        aboutMe: '',
+        favoriteGenres: '',
+        instruments: '',
+        profileImage: ''
+    });
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-        const fetchProfileData = async () => {
-            if (!user) {
-                setIsLoading(false);
-                return;
-            }
+        if (!loading && !user) {
+            router.push('/login');
+        }
+    }, [user, loading, router]);
 
-            try {
-                console.log('Fetching profile data for user:', user.uid);
-                const token = await user.getIdToken();
-                if (!token) {
-                    throw new Error('Failed to get authentication token');
-                }
-                console.log('Got authentication token');
-
-                const response = await fetch(`/api/users/${user.uid}`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => null);
-                    console.error('Profile fetch error:', {
-                        status: response.status,
-                        statusText: response.statusText,
-                        errorData
-                    });
-                    throw new Error(
-                        errorData?.error || 
-                        errorData?.details || 
-                        `HTTP error! status: ${response.status}`
-                    );
-                }
-
-                const data = await response.json();
-                console.log('Profile data received:', data);
-                setProfileData({
-                    displayName: data.displayName || '',
-                    aboutMe: data.aboutMe || '',
-                    favoriteGenres: data.favoriteGenres || '',
-                    instruments: data.instruments || ''
-                });
-                setError(null);
-            } catch (error) {
-                console.error('Error fetching profile data:', error);
-                if (error instanceof Error) {
-                    console.error('Error details:', {
-                        message: error.message,
-                        stack: error.stack,
-                        name: error.name
-                    });
-                }
-                setError(error instanceof Error ? error.message : 'Failed to load profile');
-                setProfileData(defaultProfileData);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchProfileData();
+    useEffect(() => {
+        if (user) {
+            fetchProfileData();
+        }
     }, [user]);
 
-    const handleSave = async () => {
-        if (!user) {
-            console.error('No user logged in');
+    const fetchProfileData = async () => {
+        try {
+            const response = await fetch(`/api/users/${user?.uid}`, {
+                headers: {
+                    'Authorization': `Bearer ${await user?.getIdToken()}`
+                }
+            });
+            if (!response.ok) {
+                throw new Error('Failed to fetch profile data');
+            }
+            const data = await response.json();
+            setProfileData(data);
+        } catch (error) {
+            console.error('Error fetching profile:', error);
+            setError('Failed to load profile data');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            setError('Please upload an image file');
+            return;
+        }
+
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            setError('Image size should be less than 5MB');
             return;
         }
 
         try {
-            console.log('Saving profile data for user:', user.uid);
-            const token = await user.getIdToken();
-            if (!token) {
-                throw new Error('Failed to get authentication token');
-            }
-            console.log('Got authentication token');
+            setIsSaving(true);
+            setError('');
+            setUploadProgress(0);
 
-            const response = await fetch(`/api/users/${user.uid}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(profileData),
-            });
+            // Generate a unique filename
+            const timestamp = Date.now();
+            const fileExtension = file.name.split('.').pop();
+            const fileName = `${user?.uid}_${timestamp}.${fileExtension}`;
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => null);
-                console.error('Profile save error:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    errorData
-                });
-                throw new Error(
-                    errorData?.error || 
-                    errorData?.details || 
-                    `HTTP error! status: ${response.status}`
-                );
-            }
-
-            console.log('Profile saved successfully');
-            setIsEditing(false);
-            setError(null);
+            // Create a storage reference
+            const storageRef = ref(storage, `profile-images/${fileName}`);
+            
+            // Upload the file
+            const snapshot = await uploadBytes(storageRef, file);
+            
+            // Get the download URL
+            const downloadURL = await getDownloadURL(snapshot.ref);
+            
+            // Update profile with new image URL
+            const updatedProfile = { ...profileData, profileImage: downloadURL };
+            await updateProfile(updatedProfile);
+            
+            setProfileData(updatedProfile);
+            setUploadProgress(100);
         } catch (error) {
-            console.error('Error saving profile data:', error);
-            if (error instanceof Error) {
-                console.error('Error details:', {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name
-                });
-            }
-            setError(error instanceof Error ? error.message : 'Failed to save profile');
+            console.error('Error uploading image:', error);
+            setError('Failed to upload image. Please try again.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setProfileData(prev => ({
-            ...prev,
-            [name]: value
-        }));
+    const updateProfile = async (data: typeof profileData) => {
+        try {
+            const response = await fetch(`/api/users/${user?.uid}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${await user?.getIdToken()}`
+                },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) {
+                throw new Error('Failed to update profile');
+            }
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            setError('Failed to update profile');
+            throw error;
+        }
     };
 
-    if (!user) {
-        return (
-            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
-                <div className="text-white text-center space-y-4">
-                    <h1 className="text-2xl">Please log in to view your profile</h1>
-                    <Link 
-                        href="/" 
-                        className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
-                    >
-                        Go to Login
-                    </Link>
-                </div>
-            </div>
-        );
-    }
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        setError('');
+        try {
+            await updateProfile(profileData);
+        } catch (error) {
+            // Error already handled in updateProfile
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
-    if (isLoading) {
+    if (loading || isLoading) {
         return (
             <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <div className="text-white">Loading...</div>
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-900 text-white">
-            <div className="max-w-4xl mx-auto p-6">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-bold">Profile</h1>
-                    <Link 
-                        href="/music-room" 
-                        className="text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                        Back to Music Room
-                    </Link>
-                </div>
+        <div className="min-h-screen bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-3xl mx-auto">
+                <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
+                    <h1 className="text-2xl font-bold text-white mb-6">Profile Settings</h1>
+                    
+                    {error && (
+                        <div className="mb-4 p-4 bg-red-900/50 text-red-300 rounded-md border border-red-700">
+                            {error}
+                        </div>
+                    )}
 
-                {error && (
-                    <div className="bg-red-500 text-white p-4 rounded-lg mb-6">
-                        {error}
-                    </div>
-                )}
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <div className="flex items-center space-x-6">
+                            <div className="relative">
+                                {profileData.profileImage ? (
+                                    <Image
+                                        src={profileData.profileImage}
+                                        alt="Profile"
+                                        width={128}
+                                        height={128}
+                                        className="rounded-full object-cover border-2 border-gray-700"
+                                    />
+                                ) : (
+                                    <div className="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
+                                        <span className="text-gray-400">No image</span>
+                                    </div>
+                                )}
+                                <label className="absolute bottom-0 right-0 bg-gray-800 rounded-full p-2 cursor-pointer hover:bg-gray-700 border border-gray-600">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleImageUpload}
+                                        className="hidden"
+                                    />
+                                    <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                </label>
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-medium text-white">Profile Picture</h2>
+                                <p className="text-sm text-gray-400">Upload a new profile picture</p>
+                                {uploadProgress > 0 && uploadProgress < 100 && (
+                                    <div className="mt-2 w-full bg-gray-700 rounded-full h-2.5">
+                                        <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
 
-                <div className="bg-gray-800 rounded-lg p-6 space-y-6">
-                    <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                            <label htmlFor="displayName" className="block text-sm font-medium text-gray-300">
                                 Display Name
                             </label>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    name="displayName"
-                                    value={profileData.displayName}
-                                    onChange={handleChange}
-                                    className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            ) : (
-                                <p className="text-lg">{profileData.displayName || 'Not set'}</p>
-                            )}
+                            <input
+                                type="text"
+                                id="displayName"
+                                value={profileData.displayName}
+                                onChange={(e) => setProfileData({ ...profileData, displayName: e.target.value })}
+                                className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                            <label htmlFor="aboutMe" className="block text-sm font-medium text-gray-300">
                                 About Me
                             </label>
-                            {isEditing ? (
-                                <textarea
-                                    name="aboutMe"
-                                    value={profileData.aboutMe}
-                                    onChange={handleChange}
-                                    rows={4}
-                                    className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            ) : (
-                                <p className="text-lg whitespace-pre-wrap">{profileData.aboutMe || 'No description provided'}</p>
-                            )}
+                            <textarea
+                                id="aboutMe"
+                                value={profileData.aboutMe}
+                                onChange={(e) => setProfileData({ ...profileData, aboutMe: e.target.value })}
+                                rows={4}
+                                className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                            <label htmlFor="favoriteGenres" className="block text-sm font-medium text-gray-300">
                                 Favorite Genres
                             </label>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    name="favoriteGenres"
-                                    value={profileData.favoriteGenres}
-                                    onChange={handleChange}
-                                    className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            ) : (
-                                <p className="text-lg">{profileData.favoriteGenres || 'Not specified'}</p>
-                            )}
+                            <input
+                                type="text"
+                                id="favoriteGenres"
+                                value={profileData.favoriteGenres}
+                                onChange={(e) => setProfileData({ ...profileData, favoriteGenres: e.target.value })}
+                                className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                            <label htmlFor="instruments" className="block text-sm font-medium text-gray-300">
                                 Instruments
                             </label>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    name="instruments"
-                                    value={profileData.instruments}
-                                    onChange={handleChange}
-                                    className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                            ) : (
-                                <p className="text-lg">{profileData.instruments || 'Not specified'}</p>
-                            )}
+                            <input
+                                type="text"
+                                id="instruments"
+                                value={profileData.instruments}
+                                onChange={(e) => setProfileData({ ...profileData, instruments: e.target.value })}
+                                className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
                         </div>
-                    </div>
 
-                    <div className="flex justify-end space-x-4">
-                        {isEditing ? (
-                            <>
-                                <button
-                                    onClick={() => setIsEditing(false)}
-                                    className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSave}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
-                                >
-                                    Save Changes
-                                </button>
-                            </>
-                        ) : (
+                        <div className="flex justify-end">
                             <button
-                                onClick={() => setIsEditing(true)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+                                type="submit"
+                                disabled={isSaving}
+                                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                             >
-                                Edit Profile
+                                {isSaving ? 'Saving...' : 'Save Changes'}
                             </button>
-                        )}
-                    </div>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
