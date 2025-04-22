@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as Tone from 'tone';
-import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste } from 'react-icons/fa';
+import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste, FaSync } from 'react-icons/fa';
 
 const SCALES = {
     'C Major': ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
@@ -428,6 +428,8 @@ export default function MusicMaker() {
     const [audioContext, setAudioContext] = useState(null);
     const [currentStep, setCurrentStep] = useState(0);
     const partRefs = useRef({});
+    const [isLooping, setIsLooping] = useState(false);
+    const [loopEnd, setLoopEnd] = useState(0);
 
     // Calculate time per step based on tempo
     const timePerStep = useMemo(() => {
@@ -679,12 +681,8 @@ export default function MusicMaker() {
     }, [tracks]);
 
     const handleCanvasClick = (e) => {
-        console.log('Canvas clicked');
         const canvas = canvasRef.current;
-        if (!canvas) {
-            console.log('Canvas not found');
-            return;
-        }
+        if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -704,21 +702,23 @@ export default function MusicMaker() {
         const noteIndex = scaleNotes.length - 1 - (gridY % scaleNotes.length);
         const octave = Math.floor(gridY / scaleNotes.length) + 4;
         const pitch = `${scaleNotes[noteIndex]}${octave}`;
-        console.log(`Note clicked: ${pitch} at position (${gridX}, ${gridY})`);
 
-        // Update tracks with the new note
+        // Check if clicking on an existing note
+        const existingNote = tracks[selectedTrack - 1].notes.find(
+            note => note.x === gridX && note.y === gridY
+        );
+
+        // Normal click behavior
         setTracks(tracks.map(track => {
             if (track.id === selectedTrack) {
-                const existingNoteIndex = track.notes.findIndex(
-                    note => note.x === gridX && note.y === gridY
-                );
-
-                if (existingNoteIndex !== -1) {
+                if (existingNote) {
+                    // Remove the note
                     return {
                         ...track,
-                        notes: track.notes.filter((_, index) => index !== existingNoteIndex)
+                        notes: track.notes.filter(note => !(note.x === gridX && note.y === gridY))
                     };
                 } else {
+                    // Add a new note
                     return {
                         ...track,
                         notes: [...track.notes, {
@@ -736,10 +736,7 @@ export default function MusicMaker() {
 
         // Play the note immediately for feedback
         const track = tracks.find(t => t.id === selectedTrack);
-        if (!track) {
-            console.log('Track not found');
-            return;
-        }
+        if (!track) return;
 
         // Ensure audio context is running
         const initAudio = async () => {
@@ -890,11 +887,21 @@ export default function MusicMaker() {
             const masterVolume = Tone.getDestination();
             console.log('Master volume connected');
 
-            // Verify tracks and notes
-            console.log(`Number of tracks: ${tracks.length}`);
-            tracks.forEach(track => {
-                console.log(`Track ${track.id}: ${track.notes.length} notes, muted: ${track.muted}`);
-            });
+            // Calculate loop end point based on the last note
+            const maxNoteTime = Math.max(
+                ...tracks.flatMap(track => track.notes.map(note => note.x * timePerStep)),
+                ...pianoRollNotes.map(note => note.x * timePerStep)
+            );
+            setLoopEnd(maxNoteTime + timePerStep); // Add one step for buffer
+
+            // Set up looping if enabled
+            if (isLooping) {
+                Tone.Transport.loop = true;
+                Tone.Transport.loopStart = 0;
+                Tone.Transport.loopEnd = maxNoteTime + timePerStep;
+            } else {
+                Tone.Transport.loop = false;
+            }
 
             // Schedule all notes for all tracks
             for (const track of tracks) {
@@ -911,7 +918,6 @@ export default function MusicMaker() {
                         const drumPlayer = instrument.synth();
                         synthRefs.current[track.id] = drumPlayer;
                         drumPlayer.connect(masterVolume);
-                        console.log(`Drum player initialized for track ${track.id}`);
                     } else {
                         const synth = instrument.synth();
                         synthRefs.current[track.id] = synth;
@@ -1018,6 +1024,61 @@ export default function MusicMaker() {
                     partRefs.current[track.id] = [];
                 }
                 partRefs.current[track.id].push(part);
+            }
+
+            // Schedule piano roll notes if they exist
+            if (pianoRollNotes.length > 0) {
+                const pianoRollPart = new Tone.Part((time, note) => {
+                    try {
+                        const synth = synthRefs.current[selectedTrack];
+                        if (!synth) {
+                            console.error('No synth found for piano roll');
+                            return;
+                        }
+
+                        if (typeof synth.triggerAttackRelease === 'function') {
+                            const noteLengthInSeconds = (60 / tempo) * 0.5; // Default to 8th note length
+                            const safeNoteLength = Math.max(0.1, noteLengthInSeconds);
+                            
+                            synth.triggerAttackRelease(
+                                note.pitch,
+                                safeNoteLength,
+                                time
+                            );
+                            console.log(`Playing piano roll note ${note.pitch} at time ${time}`);
+                        }
+                    } catch (error) {
+                        console.error('Error playing piano roll note:', error);
+                    }
+                }, []);
+
+                // Group piano roll notes by time
+                const pianoRollGroups = new Map();
+                pianoRollNotes.forEach(note => {
+                    const timeInSeconds = (note.x * 60) / (tempo * STEPS_PER_BEAT);
+                    const group = pianoRollGroups.get(timeInSeconds) || [];
+                    group.push(note);
+                    pianoRollGroups.set(timeInSeconds, group);
+                });
+
+                // Add notes to the part
+                pianoRollGroups.forEach((notes, time) => {
+                    notes.forEach((note, index) => {
+                        const offset = index * 0.01; // 10ms offset
+                        pianoRollPart.add(time + offset, note);
+                    });
+                });
+
+                // Start the piano roll part
+                pianoRollPart.start(0);
+                pianoRollPart.loop = false;
+                pianoRollPart.loopEnd = "1m";
+
+                // Store the part for cleanup
+                if (!partRefs.current['pianoRoll']) {
+                    partRefs.current['pianoRoll'] = [];
+                }
+                partRefs.current['pianoRoll'].push(pianoRollPart);
             }
 
             // Start playback with a small offset to ensure proper timing
@@ -1444,6 +1505,12 @@ export default function MusicMaker() {
             const currentStep = Math.floor(currentTime / timePerStep);
             const currentCol = Math.floor(currentStep);
             
+            // Check if we've reached the loop end point
+            if (isLooping && currentTime >= loopEnd) {
+                Tone.Transport.seconds = 0;
+                return;
+            }
+            
             // Always update the current column and playback position for continuous movement
             setCurrentColumn(currentCol);
             setPlaybackPosition(currentTime.toFixed(2));
@@ -1456,7 +1523,7 @@ export default function MusicMaker() {
         return () => {
             clearInterval(transportInterval);
         };
-    }, [isPlaying, timePerStep, currentColumn]);
+    }, [isPlaying, timePerStep, currentColumn, isLooping, loopEnd]);
 
     // MIDI Setup
     useEffect(() => {
@@ -2175,6 +2242,12 @@ export default function MusicMaker() {
                     <option value={8}>1/8</option>
                     <option value={16}>1/16</option>
                 </select>
+                <button
+                    onClick={() => setIsLooping(!isLooping)}
+                    className={`px-4 py-2 ${isLooping ? 'bg-green-600' : 'bg-gray-700'} text-white rounded hover:bg-green-700 flex items-center gap-2`}
+                >
+                    <FaSync /> {isLooping ? 'Loop On' : 'Loop Off'}
+                </button>
             </div>
 
             {/* Track Controls */}
