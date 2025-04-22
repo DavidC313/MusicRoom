@@ -690,9 +690,14 @@ export default function MusicMaker() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const gridSize = 20;
+        const labelWidth = 40;
+
+        // Adjust x coordinate to account for label width
+        const adjustedX = x - labelWidth;
+        if (adjustedX < 0) return; // Don't allow clicks in the label area
 
         // Convert click coordinates to grid positions
-        const gridX = Math.floor(x / gridSize);
+        const gridX = Math.floor(adjustedX / gridSize);
         const gridY = Math.floor(y / gridSize);
 
         const scaleNotes = SCALES[selectedScale];
@@ -780,22 +785,12 @@ export default function MusicMaker() {
                 if (synth) {
                     if (INSTRUMENTS[track.instrument].isDrum) {
                         const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
-                        if (drumType) {
-                            console.log(`Playing drum type: ${drumType} for pitch ${pitch}`);
-                            if (typeof synth.player === 'function') {
-                                synth.player(drumType).start(Tone.now());
-                            } else {
-                                console.error('Drum player function not found');
-                            }
-                        } else {
-                            console.warn(`No drum type mapped for pitch ${pitch}`);
+                        if (drumType && typeof synth.player === 'function') {
+                            synth.player(drumType).start(Tone.now());
                         }
                     } else if (typeof synth.triggerAttackRelease === 'function') {
-                        console.log(`Playing note: ${pitch}`);
                         synth.triggerAttackRelease(pitch, '8n', Tone.now());
                     }
-                } else {
-                    console.error('Synth not found for track');
                 }
             } catch (error) {
                 console.error('Error playing note:', error);
@@ -1602,8 +1597,13 @@ export default function MusicMaker() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const gridSize = 20;
+        const labelWidth = 40;
 
-        const gridX = Math.floor(x / gridSize);
+        // Adjust x coordinate to account for label width
+        const adjustedX = x - labelWidth;
+        if (adjustedX < 0) return; // Don't allow clicks in the label area
+
+        const gridX = Math.floor(adjustedX / gridSize);
         const gridY = Math.floor(y / gridSize);
 
         const scaleNotes = SCALES[selectedScale];
