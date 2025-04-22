@@ -1028,6 +1028,25 @@ export default function MusicMaker() {
 
             // Schedule piano roll notes if they exist
             if (pianoRollNotes.length > 0) {
+                const track = tracks.find(t => t.id === selectedTrack);
+                if (!track) return;
+
+                // Initialize synth if needed
+                if (!synthRefs.current[selectedTrack]) {
+                    console.log(`Initializing synth for piano roll`);
+                    const instrument = INSTRUMENTS[track.instrument];
+                    if (instrument.isDrum) {
+                        const drumPlayer = instrument.synth();
+                        synthRefs.current[selectedTrack] = drumPlayer;
+                        drumPlayer.connect(masterVolume);
+                    } else {
+                        const synth = instrument.synth();
+                        synthRefs.current[selectedTrack] = synth;
+                        synth.connect(masterVolume);
+                        console.log(`Synth initialized for piano roll`);
+                    }
+                }
+
                 const pianoRollPart = new Tone.Part((time, note) => {
                     try {
                         const synth = synthRefs.current[selectedTrack];
@@ -1036,7 +1055,13 @@ export default function MusicMaker() {
                             return;
                         }
 
-                        if (typeof synth.triggerAttackRelease === 'function') {
+                        if (INSTRUMENTS[track.instrument].isDrum) {
+                            const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
+                            if (drumType && typeof synth.player === 'function') {
+                                synth.player(drumType).start(time);
+                                console.log(`Playing drum ${drumType} at time ${time}`);
+                            }
+                        } else if (typeof synth.triggerAttackRelease === 'function') {
                             const noteLengthInSeconds = (60 / tempo) * 0.5; // Default to 8th note length
                             const safeNoteLength = Math.max(0.1, noteLengthInSeconds);
                             
@@ -1153,6 +1178,7 @@ export default function MusicMaker() {
         setTracks(tracks.map(track => 
             track.id === selectedTrack ? { ...track, notes: [] } : track
         ));
+        setPianoRollNotes([]); // Clear piano roll notes
     };
 
     const saveComposition = () => {
@@ -1820,8 +1846,13 @@ export default function MusicMaker() {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const gridSize = 20;
+        const labelWidth = 40;
 
-        const gridX = Math.floor(x / gridSize);
+        // Adjust x coordinate to account for label width
+        const adjustedX = x - labelWidth;
+        if (adjustedX < 0) return; // Don't allow clicks in the label area
+
+        const gridX = Math.floor(adjustedX / gridSize);
         const gridY = Math.floor(y / gridSize);
 
         // Check if clicking on a note
@@ -1833,7 +1864,7 @@ export default function MusicMaker() {
 
         if (clickedNote) {
             // Check if clicking on the right edge for resizing
-            if (Math.abs(x - (clickedNote.x + clickedNote.width) * gridSize) < 10) {
+            if (Math.abs(adjustedX - (clickedNote.x + clickedNote.width) * gridSize) < 10) {
                 setIsResizing(true);
                 setResizeStart({ x: gridX, note: clickedNote });
             } else {
