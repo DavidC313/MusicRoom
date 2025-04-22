@@ -431,8 +431,10 @@ export default function MusicMaker() {
 
     // Calculate time per step based on tempo
     const timePerStep = useMemo(() => {
-        // Match Chrome Music Lab's timing - slightly slower for better feel
-        return (60 / tempo) / (STEPS_PER_BEAT * 0.8); // Slightly slower for better feel
+        // Calculate time per step in seconds
+        // At 60 BPM, one beat = 1 second
+        // Each step is 1/16th of a beat
+        return (60 / tempo) / STEPS_PER_BEAT;
     }, [tempo]);
 
     // Draw the grid and notes
@@ -450,18 +452,33 @@ export default function MusicMaker() {
         const gridSize = 20;
         const rows = Math.floor(height / gridSize);
         const cols = Math.floor(width / gridSize);
+        const labelWidth = 40;
 
         // Clear canvas with a light background
         ctx.fillStyle = '#f8f9fa';
         ctx.fillRect(0, 0, width, height);
 
-        // Draw scale notes with alternating colors
+        // Draw scale notes with alternating colors and labels
         const scaleNotes = SCALES[selectedScale];
-        scaleNotes.forEach((note, index) => {
-            const y = rows - index - 1;
-            ctx.fillStyle = index % 2 === 0 ? '#ffffff' : '#f0f2f5';
-            ctx.fillRect(0, y * gridSize, width, gridSize);
-        });
+        const octaves = Math.ceil(rows / scaleNotes.length);
+        
+        for (let octave = 0; octave < octaves; octave++) {
+            scaleNotes.forEach((note, index) => {
+                const y = rows - (octave * scaleNotes.length + index) - 1;
+                if (y < 0) return;
+                
+                // Draw alternating background colors
+                ctx.fillStyle = (octave * scaleNotes.length + index) % 2 === 0 ? '#ffffff' : '#f0f2f5';
+                ctx.fillRect(0, y * gridSize, width, gridSize);
+                
+                // Draw note label with octave number
+                ctx.fillStyle = '#333333';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${note}${octave + 4}`, labelWidth / 2, y * gridSize + gridSize / 2);
+            });
+        }
 
         // Draw grid lines with subtle colors
         ctx.strokeStyle = '#e9ecef';
@@ -470,7 +487,7 @@ export default function MusicMaker() {
         // Draw horizontal lines
         for (let i = 0; i <= rows; i++) {
             ctx.beginPath();
-            ctx.moveTo(0, i * gridSize);
+            ctx.moveTo(labelWidth, i * gridSize);
             ctx.lineTo(width, i * gridSize);
             ctx.stroke();
         }
@@ -478,8 +495,8 @@ export default function MusicMaker() {
         // Draw vertical lines
         for (let i = 0; i <= cols; i++) {
             ctx.beginPath();
-            ctx.moveTo(i * gridSize, 0);
-            ctx.lineTo(i * gridSize, height);
+            ctx.moveTo(i * gridSize + labelWidth, 0);
+            ctx.lineTo(i * gridSize + labelWidth, height);
             ctx.stroke();
         }
 
@@ -487,7 +504,7 @@ export default function MusicMaker() {
         const selectedTrackData = tracks.find(t => t.id === selectedTrack);
         if (selectedTrackData) {
             selectedTrackData.notes.forEach(note => {
-                const x = note.x * gridSize;
+                const x = note.x * gridSize + labelWidth;
                 const y = note.y * gridSize;
                 const size = gridSize;
                 
@@ -507,7 +524,13 @@ export default function MusicMaker() {
                 ctx.shadowOffsetY = 1;
             });
         }
-    }, [tracks, currentNote, selectedScale, selectedTrack, canvasRef]);
+
+        // Draw current column highlight
+        if (currentColumn !== null) {
+            ctx.fillStyle = 'rgba(74, 144, 226, 0.2)';
+            ctx.fillRect(currentColumn * gridSize + labelWidth, 0, gridSize, height);
+        }
+    }, [tracks, currentNote, selectedScale, selectedTrack, canvasRef, currentColumn]);
 
     // Add metronome
     useEffect(() => {
@@ -922,6 +945,15 @@ export default function MusicMaker() {
                 const sortedNotes = [...track.notes].sort((a, b) => a.x - b.x);
                 const noteGroups = new Map();
                 
+                // Find the maximum x position to ensure we schedule all grid positions
+                const maxX = Math.max(...track.notes.map(note => note.x), 0);
+                
+                // Initialize all grid positions, including empty ones
+                for (let x = 0; x <= maxX; x++) {
+                    noteGroups.set(x, []);
+                }
+                
+                // Add notes to their respective positions
                 sortedNotes.forEach(note => {
                     const group = noteGroups.get(note.x) || [];
                     group.push(note);
@@ -946,6 +978,7 @@ export default function MusicMaker() {
                                 console.log(`Playing drum ${drumType} at time ${time}`);
                             }
                         } else if (typeof synth.triggerAttackRelease === 'function') {
+                            // Calculate note length in seconds based on tempo
                             const noteLengthInSeconds = (60 / tempo) * 
                                 (note.length === '1n' ? 4 : 
                                  note.length === '2n' ? 2 :
@@ -968,15 +1001,17 @@ export default function MusicMaker() {
                     }
                 }, []);
 
-                // Add notes to the part with unique times
-                noteGroups.forEach((notes, x) => {
-                    const timeInSeconds = x * timePerStep;
+                // Add all grid positions to the part, including empty ones
+                for (let x = 0; x <= maxX; x++) {
+                    const timeInSeconds = (x * 60) / (tempo * STEPS_PER_BEAT);
+                    const notes = noteGroups.get(x) || [];
+                    
+                    // Add a small offset to ensure unique times for simultaneous notes
                     notes.forEach((note, index) => {
-                        // Add a small offset to ensure unique times
                         const offset = index * 0.01; // 10ms offset
                         part.add(timeInSeconds + offset, note);
                     });
-                });
+                }
 
                 // Start the part
                 part.start(0);
@@ -1402,52 +1437,31 @@ export default function MusicMaker() {
         };
     }, [showVisualizer]);
 
-    // Update playback position with note timing
-    useEffect(() => {
-        if (!isPlaying) {
-            return;
-        }
-
-        // Create a loop that updates every second
-        const updateLoop = new Tone.Loop((time) => {
-            try {
-                const currentTime = Tone.Transport.seconds;
-                const currentStep = Math.floor(currentTime / timePerStep);
-                
-                // Update the playback position
-                setPlaybackPosition(currentTime.toFixed(2));
-                
-                console.log(`Playing at time ${currentTime}`);
-            } catch (error) {
-                console.error('Error updating position:', error);
-            }
-        }, 1).start(0); // Update every second
-
-        return () => {
-            updateLoop.dispose();
-        };
-    }, [isPlaying, tempo, timePerStep]);
-
-    // Add a new effect to handle transport position updates with proper timing
+    // Add effect to handle transport position updates with proper timing
     useEffect(() => {
         if (!isPlaying) return;
+
+        let lastUpdateTime = 0;
+        const updateInterval = 16; // 60fps for smooth updates
 
         const handleTransport = () => {
             const currentTime = Tone.Transport.seconds;
             const currentStep = Math.floor(currentTime / timePerStep);
             const currentCol = Math.floor(currentStep);
             
-            // Update the current column
+            // Always update the current column and playback position for continuous movement
             setCurrentColumn(currentCol);
+            setPlaybackPosition(currentTime.toFixed(2));
+            lastUpdateTime = currentTime;
         };
 
-        // Listen for transport position changes every second
-        const transportInterval = setInterval(handleTransport, 1000); // Update every second
+        // Listen for transport position changes more frequently for smoother updates
+        const transportInterval = setInterval(handleTransport, updateInterval);
 
         return () => {
             clearInterval(transportInterval);
         };
-    }, [isPlaying, timePerStep]);
+    }, [isPlaying, timePerStep, currentColumn]);
 
     // MIDI Setup
     useEffect(() => {
@@ -1516,27 +1530,52 @@ export default function MusicMaker() {
         const gridSize = 20;
         const rows = Math.floor(height / gridSize);
         const cols = Math.floor(width / gridSize);
+        const labelWidth = 40;
 
         const drawPianoRoll = () => {
             // Clear canvas
             ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(0, 0, width, height);
 
+            // Draw scale notes with alternating colors and labels
+            const scaleNotes = SCALES[selectedScale];
+            const octaves = Math.ceil(rows / scaleNotes.length);
+            
+            for (let octave = 0; octave < octaves; octave++) {
+                scaleNotes.forEach((note, index) => {
+                    const y = rows - (octave * scaleNotes.length + index) - 1;
+                    if (y < 0) return;
+                    
+                    // Draw alternating background colors
+                    ctx.fillStyle = (octave * scaleNotes.length + index) % 2 === 0 ? '#2a2a2a' : '#1f1f1f';
+                    ctx.fillRect(0, y * gridSize, width, gridSize);
+                    
+                    // Draw note label with octave number
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`${note}${octave + 4}`, labelWidth / 2, y * gridSize + gridSize / 2);
+                });
+            }
+
             // Draw grid
             ctx.strokeStyle = '#333';
             ctx.lineWidth = 1;
 
+            // Draw horizontal lines
             for (let i = 0; i <= rows; i++) {
                 ctx.beginPath();
-                ctx.moveTo(0, i * gridSize);
+                ctx.moveTo(labelWidth, i * gridSize);
                 ctx.lineTo(width, i * gridSize);
                 ctx.stroke();
             }
 
+            // Draw vertical lines
             for (let i = 0; i <= cols; i++) {
                 ctx.beginPath();
-                ctx.moveTo(i * gridSize, 0);
-                ctx.lineTo(i * gridSize, height);
+                ctx.moveTo(i * gridSize + labelWidth, 0);
+                ctx.lineTo(i * gridSize + labelWidth, height);
                 ctx.stroke();
             }
 
@@ -1544,7 +1583,7 @@ export default function MusicMaker() {
             pianoRollNotes.forEach(note => {
                 ctx.fillStyle = note.color || '#3b82f6';
                 ctx.fillRect(
-                    note.x * gridSize,
+                    note.x * gridSize + labelWidth,
                     note.y * gridSize,
                     note.width * gridSize,
                     gridSize
@@ -1553,7 +1592,7 @@ export default function MusicMaker() {
         };
 
         drawPianoRoll();
-    }, [showPianoRoll, pianoRollNotes]);
+    }, [showPianoRoll, pianoRollNotes, selectedScale]);
 
     const handlePianoRollClick = (e) => {
         if (!showPianoRoll || !pianoRollRef.current) return;
