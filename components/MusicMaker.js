@@ -1999,6 +1999,26 @@ export default function MusicMaker() {
                         synth.toDestination();
                     }
                 }
+
+                // Update track volume based on mute/solo state
+                const synth = synthRefs.current[selectedTrack];
+                if (synth) {
+                    // Check if any track is soloed
+                    const anySoloed = tracks.some(t => t.solo);
+                    
+                    if (anySoloed) {
+                        // If this track is soloed, unmute it
+                        if (track.solo) {
+                            synth.volume.value = 0;
+                        } else {
+                            // If another track is soloed, mute this one
+                            synth.volume.value = -Infinity;
+                        }
+                    } else {
+                        // If no tracks are soloed, respect the mute state
+                        synth.volume.value = track.muted ? -Infinity : 0;
+                    }
+                }
             } catch (error) {
                 console.error('Error initializing track synth:', error);
             }
@@ -2006,6 +2026,34 @@ export default function MusicMaker() {
 
         initTrackSynth();
     }, [selectedTrack, tracks]);
+
+    // Add a new effect to handle track volume changes
+    useEffect(() => {
+        const updateTrackVolumes = () => {
+            // Check if any track is soloed
+            const anySoloed = tracks.some(t => t.solo);
+            
+            tracks.forEach(track => {
+                const synth = synthRefs.current[track.id];
+                if (synth) {
+                    if (anySoloed) {
+                        // If this track is soloed, unmute it
+                        if (track.solo) {
+                            synth.volume.value = 0;
+                        } else {
+                            // If another track is soloed, mute this one
+                            synth.volume.value = -Infinity;
+                        }
+                    } else {
+                        // If no tracks are soloed, respect the mute state
+                        synth.volume.value = track.muted ? -Infinity : 0;
+                    }
+                }
+            });
+        };
+
+        updateTrackVolumes();
+    }, [tracks]);
 
     // Add back the missing functions
     const addTrack = () => {
@@ -2139,6 +2187,46 @@ export default function MusicMaker() {
         }
         setIsPlaying(true);
     };
+
+    // Add a new effect to handle real-time track volume updates during playback
+    useEffect(() => {
+        const updateTrackVolumes = () => {
+            // Check if any track is soloed
+            const anySoloed = tracks.some(t => t.solo);
+            
+            tracks.forEach(track => {
+                const synth = synthRefs.current[track.id];
+                if (synth) {
+                    if (anySoloed) {
+                        // If this track is soloed, unmute it
+                        if (track.solo) {
+                            synth.volume.value = 0;
+                        } else {
+                            // If another track is soloed, mute this one
+                            synth.volume.value = -Infinity;
+                        }
+                    } else {
+                        // If no tracks are soloed, respect the mute state
+                        synth.volume.value = track.muted ? -Infinity : 0;
+                    }
+                }
+            });
+        };
+
+        // Update volumes immediately when tracks change
+        updateTrackVolumes();
+
+        // Set up an interval to update volumes during playback
+        const intervalId = setInterval(() => {
+            if (isPlaying) {
+                updateTrackVolumes();
+            }
+        }, 100); // Update every 100ms during playback
+
+        return () => {
+            clearInterval(intervalId);
+        };
+    }, [tracks, isPlaying]);
 
     return (
         <div className="flex flex-col items-center space-y-4 p-4">
