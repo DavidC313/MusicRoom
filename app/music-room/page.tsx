@@ -35,10 +35,18 @@ export default function MusicRoom() {
                 <header className="bg-gray-800 p-4 flex justify-between items-center border-b border-gray-700">
                     <h1 className="text-white text-xl font-bold">Music Room</h1>
                     <div className="flex items-center space-x-4">
-                        <span className="text-gray-300">Welcome, {user.email}</span>
+                        <h1 className="text-2xl font-bold text-gray-800">
+                            Welcome to MusicRoom,{' '}
+                            <Link 
+                                href="/profile" 
+                                className="text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                                {user.email}
+                            </Link>
+                        </h1>
                         <button 
                             onClick={logout} 
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
+                            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                         >
                             Logout
                         </button>
