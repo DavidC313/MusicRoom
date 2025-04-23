@@ -7,6 +7,7 @@ import { storage } from '@/utils/firebase-client';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Image from 'next/image';
 import Link from 'next/link';
+import { FaInstagram, FaTwitter, FaSoundcloud, FaSpotify, FaYoutube, FaLastfm } from 'react-icons/fa';
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
@@ -16,12 +17,28 @@ export default function ProfilePage() {
         aboutMe: '',
         favoriteGenres: '',
         instruments: '',
-        profileImage: ''
+        profileImage: '',
+        socialMedia: {
+            instagram: '',
+            twitter: '',
+            soundcloud: '',
+            spotify: '',
+            youtube: '',
+            lastfm: ''
+        },
+        musicalPreferences: {
+            favoriteArtists: '',
+            influences: '',
+            streamingPlatforms: ''
+        },
+        lastLogin: new Date().toISOString(),
+        lastUpdate: new Date().toISOString()
     });
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [error, setError] = useState('');
+    const [hasSavedChanges, setHasSavedChanges] = useState(false);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -46,7 +63,28 @@ export default function ProfilePage() {
                 throw new Error('Failed to fetch profile data');
             }
             const data = await response.json();
-            setProfileData(data);
+            
+            // Ensure social media and musical preferences objects are initialized
+            const profileData = {
+                ...data,
+                socialMedia: {
+                    instagram: data.socialMedia?.instagram || '',
+                    twitter: data.socialMedia?.twitter || '',
+                    soundcloud: data.socialMedia?.soundcloud || '',
+                    spotify: data.socialMedia?.spotify || '',
+                    youtube: data.socialMedia?.youtube || '',
+                    lastfm: data.socialMedia?.lastfm || ''
+                },
+                musicalPreferences: {
+                    favoriteArtists: data.musicalPreferences?.favoriteArtists || '',
+                    influences: data.musicalPreferences?.influences || '',
+                    streamingPlatforms: data.musicalPreferences?.streamingPlatforms || ''
+                },
+                lastLogin: data.lastLogin || new Date().toISOString(),
+                lastUpdate: data.lastUpdate || new Date().toISOString()
+            };
+            
+            setProfileData(profileData);
         } catch (error) {
             console.error('Error fetching profile:', error);
             setError('Failed to load profile data');
@@ -130,11 +168,44 @@ export default function ProfilePage() {
         setError('');
         try {
             await updateProfile(profileData);
+            setHasSavedChanges(true);
         } catch (error) {
             // Error already handled in updateProfile
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleSocialMediaChange = (platform: string, value: string) => {
+        setProfileData({
+            ...profileData,
+            socialMedia: {
+                ...profileData.socialMedia,
+                [platform]: value
+            }
+        });
+    };
+
+    const handleMusicalPreferencesChange = (field: string, value: string) => {
+        setProfileData({
+            ...profileData,
+            musicalPreferences: {
+                ...profileData.musicalPreferences,
+                [field]: value
+            }
+        });
+    };
+
+    const getSocialMediaUrl = (platform: string, username: string) => {
+        const urls: { [key: string]: string } = {
+            instagram: `https://instagram.com/${username}`,
+            twitter: `https://twitter.com/${username}`,
+            soundcloud: `https://soundcloud.com/${username}`,
+            spotify: `https://open.spotify.com/user/${username}`,
+            youtube: `https://youtube.com/${username}`,
+            lastfm: `https://last.fm/user/${username}`
+        };
+        return urls[platform] || '#';
     };
 
     if (loading || isLoading) {
@@ -166,6 +237,7 @@ export default function ProfilePage() {
                                     width={32}
                                     height={32}
                                     className="object-cover w-full h-full"
+                                    priority
                                 />
                             ) : (
                                 <Image
@@ -174,6 +246,7 @@ export default function ProfilePage() {
                                     width={32}
                                     height={32}
                                     className="object-cover w-full h-full"
+                                    priority
                                 />
                             )}
                         </div>
@@ -191,7 +264,7 @@ export default function ProfilePage() {
             </header>
 
             <div className="py-12 px-4 sm:px-6 lg:px-8">
-                <div className="max-w-3xl mx-auto">
+                <div className="max-w-3xl mx-auto space-y-6">
                     <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
                         <h1 className="text-2xl font-bold text-white mb-6">Profile Settings</h1>
                         
@@ -211,6 +284,7 @@ export default function ProfilePage() {
                                             width={128}
                                             height={128}
                                             className="rounded-full object-cover border-2 border-gray-700"
+                                            priority
                                         />
                                     ) : (
                                         <div className="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
@@ -220,6 +294,7 @@ export default function ProfilePage() {
                                                 width={128}
                                                 height={128}
                                                 className="rounded-full object-cover"
+                                                priority
                                             />
                                         </div>
                                     )}
@@ -299,6 +374,103 @@ export default function ProfilePage() {
                                 />
                             </div>
 
+                            {/* Social Media Links */}
+                            <div className="space-y-4">
+                                <h2 className="text-lg font-medium text-white">Social Media Links</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {Object.entries(profileData.socialMedia).map(([platform, username]) => {
+                                        const Icon = {
+                                            instagram: FaInstagram,
+                                            twitter: FaTwitter,
+                                            soundcloud: FaSoundcloud,
+                                            spotify: FaSpotify,
+                                            youtube: FaYoutube,
+                                            lastfm: FaLastfm
+                                        }[platform];
+
+                                        const colors = {
+                                            instagram: 'text-pink-500 hover:text-pink-400',
+                                            twitter: 'text-blue-400 hover:text-blue-300',
+                                            soundcloud: 'text-orange-500 hover:text-orange-400',
+                                            spotify: 'text-green-500 hover:text-green-400',
+                                            youtube: 'text-red-500 hover:text-red-400',
+                                            lastfm: 'text-red-600 hover:text-red-500'
+                                        }[platform];
+
+                                        return (
+                                            <div key={platform} className="flex items-center space-x-2">
+                                                <div className={`flex items-center space-x-2 ${!hasSavedChanges ? 'opacity-50' : ''}`}>
+                                                    <Icon className={`w-5 h-5 ${colors}`} />
+                                                    <input
+                                                        type="text"
+                                                        placeholder={`${platform.charAt(0).toUpperCase() + platform.slice(1)} username`}
+                                                        value={username}
+                                                        onChange={(e) => handleSocialMediaChange(platform, e.target.value)}
+                                                        className="flex-1 rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                    />
+                                                </div>
+                                                {hasSavedChanges && username && (
+                                                    <a
+                                                        href={getSocialMediaUrl(platform, username)}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="ml-2 text-blue-400 hover:text-blue-300"
+                                                    >
+                                                        Visit Profile
+                                                    </a>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Musical Preferences */}
+                            <div className="space-y-4">
+                                <h2 className="text-lg font-medium text-white">Musical Preferences</h2>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label htmlFor="favoriteArtists" className="block text-sm font-medium text-gray-300">
+                                            Favorite Artists
+                                        </label>
+                                        <textarea
+                                            id="favoriteArtists"
+                                            value={profileData.musicalPreferences.favoriteArtists}
+                                            onChange={(e) => handleMusicalPreferencesChange('favoriteArtists', e.target.value)}
+                                            rows={3}
+                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            placeholder="List your favorite artists..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label htmlFor="influences" className="block text-sm font-medium text-gray-300">
+                                            Musical Influences
+                                        </label>
+                                        <textarea
+                                            id="influences"
+                                            value={profileData.musicalPreferences.influences}
+                                            onChange={(e) => handleMusicalPreferencesChange('influences', e.target.value)}
+                                            rows={3}
+                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            placeholder="List your musical influences..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label htmlFor="streamingPlatforms" className="block text-sm font-medium text-gray-300">
+                                            Preferred Streaming Platforms
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="streamingPlatforms"
+                                            value={profileData.musicalPreferences.streamingPlatforms}
+                                            onChange={(e) => handleMusicalPreferencesChange('streamingPlatforms', e.target.value)}
+                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            placeholder="Spotify, Apple Music, etc."
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end">
                                 <button
                                     type="submit"
@@ -309,6 +481,21 @@ export default function ProfilePage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+
+                    {/* Activity Feed */}
+                    <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
+                        <h2 className="text-xl font-bold text-white mb-4">Activity Feed</h2>
+                        <div className="space-y-4">
+                            <div className="flex items-center space-x-3 text-gray-300">
+                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                <span>Last login: {new Date(profileData.lastLogin).toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center space-x-3 text-gray-300">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                <span>Profile last updated: {new Date(profileData.lastUpdate).toLocaleString()}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

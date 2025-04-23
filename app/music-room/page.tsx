@@ -79,6 +79,7 @@ export default function MusicRoom() {
                                         width={32}
                                         height={32}
                                         className="object-cover w-full h-full"
+                                        priority
                                     />
                                 ) : (
                                     <Image
@@ -87,6 +88,7 @@ export default function MusicRoom() {
                                         width={32}
                                         height={32}
                                         className="object-cover w-full h-full"
+                                        priority
                                     />
                                 )}
                             </div>
