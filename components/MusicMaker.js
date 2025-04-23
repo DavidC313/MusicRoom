@@ -780,13 +780,14 @@ export default function MusicMaker() {
                 await initSynth();
                 const synth = synthRefs.current[selectedTrack];
                 if (synth) {
+                    const now = Tone.now();
                     if (INSTRUMENTS[track.instrument].isDrum) {
                         const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
                         if (drumType && typeof synth.player === 'function') {
-                            synth.player(drumType).start(Tone.now());
+                            synth.player(drumType).start(now);
                         }
                     } else if (typeof synth.triggerAttackRelease === 'function') {
-                        synth.triggerAttackRelease(pitch, '8n', Tone.now());
+                        synth.triggerAttackRelease(pitch, '8n', now);
                     }
                 }
             } catch (error) {
@@ -873,113 +874,75 @@ export default function MusicMaker() {
                 throw new Error('Failed to initialize audio and transport');
             }
 
-            // Verify tempo and timing
-            console.log(`Current tempo: ${tempo} BPM`);
-            console.log(`Time per step: ${timePerStep} seconds`);
-            console.log(`Steps per beat: ${STEPS_PER_BEAT}`);
-            console.log(`Steps per bar: ${STEPS_PER_BAR}`);
-
-            // Set tempo
+            // Set tempo and timing parameters
             Tone.Transport.bpm.value = tempo;
-            console.log(`Transport tempo set to ${tempo} BPM`);
-
-            // Get the master volume
-            const masterVolume = Tone.getDestination();
-            console.log('Master volume connected');
-
-            // Calculate loop end point based on the last note
-            const maxNoteTime = Math.max(
-                ...tracks.flatMap(track => track.notes.map(note => note.x * timePerStep)),
-                ...pianoRollNotes.map(note => note.x * timePerStep)
+            Tone.Transport.swing = 0; // No swing for precise timing
+            
+            // Calculate precise timing values
+            const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
+            const timePerBar = timePerStep * STEPS_PER_BAR;
+            
+            // Find the maximum note position across all tracks
+            const maxNotePosition = Math.max(
+                ...tracks.flatMap(track => 
+                    track.notes.map(note => note.x)
+                ),
+                0 // Default to 0 if no notes
             );
-            setLoopEnd(maxNoteTime + timePerStep); // Add one step for buffer
-
-            // Set up looping if enabled
-            if (isLooping) {
-                Tone.Transport.loop = true;
-                Tone.Transport.loopStart = 0;
-                Tone.Transport.loopEnd = maxNoteTime + timePerStep;
-            } else {
-                Tone.Transport.loop = false;
-            }
-
+            
+            // Calculate loop end point in seconds
+            const loopEnd = (maxNotePosition + 1) * timePerStep;
+            
+            // Set up looping
+            Tone.Transport.loop = isLooping;
+            Tone.Transport.loopStart = 0;
+            Tone.Transport.loopEnd = loopEnd;
+            
+            // Reset transport position to start
+            Tone.Transport.seconds = 0;
+            
             // Schedule all notes for all tracks
             for (const track of tracks) {
-                if (track.muted) {
-                    console.log(`Track ${track.id} is muted, skipping`);
-                    continue;
-                }
+                if (track.muted) continue;
 
                 // Initialize synth if needed
                 if (!synthRefs.current[track.id]) {
-                    console.log(`Initializing synth for track ${track.id}`);
                     const instrument = INSTRUMENTS[track.instrument];
                     if (instrument.isDrum) {
                         const drumPlayer = instrument.synth();
                         synthRefs.current[track.id] = drumPlayer;
-                        drumPlayer.connect(masterVolume);
+                        drumPlayer.connect(Tone.getDestination());
                     } else {
                         const synth = instrument.synth();
                         synthRefs.current[track.id] = synth;
-                        synth.connect(masterVolume);
-                        console.log(`Synth initialized for track ${track.id}`);
+                        synth.connect(Tone.getDestination());
                     }
-                }
-
-                // Initialize effects if needed
-                if (track.effects.length > 0 && !effectRefs.current[track.id]) {
-                    console.log(`Initializing effects for track ${track.id}: ${track.effects.join(', ')}`);
-                    effectRefs.current[track.id] = [];
-                    let lastNode = synthRefs.current[track.id];
-                    
-                    track.effects.forEach(effectName => {
-                        const effect = EFFECTS[effectName].effect();
-                        effectRefs.current[track.id].push(effect);
-                        lastNode.connect(effect);
-                        lastNode = effect;
-                        console.log(`Effect ${effectName} initialized for track ${track.id}`);
-                    });
-                    lastNode.connect(masterVolume);
                 }
 
                 // Sort notes by time and group by position
                 const sortedNotes = [...track.notes].sort((a, b) => a.x - b.x);
                 const noteGroups = new Map();
                 
-                // Find the maximum x position to ensure we schedule all grid positions
-                const maxX = Math.max(...track.notes.map(note => note.x), 0);
-                
-                // Initialize all grid positions, including empty ones
-                for (let x = 0; x <= maxX; x++) {
-                    noteGroups.set(x, []);
-                }
-                
-                // Add notes to their respective positions
+                // Group notes by their time position
                 sortedNotes.forEach(note => {
-                    const group = noteGroups.get(note.x) || [];
+                    const timeInSeconds = note.x * timePerStep;
+                    const group = noteGroups.get(timeInSeconds) || [];
                     group.push(note);
-                    noteGroups.set(note.x, group);
+                    noteGroups.set(timeInSeconds, group);
                 });
 
-                console.log(`Scheduling ${sortedNotes.length} notes for track ${track.id}`);
-
-                // Schedule notes with smoother timing
+                // Create a part for this track
                 const part = new Tone.Part((time, note) => {
                     try {
                         const synth = synthRefs.current[track.id];
-                        if (!synth) {
-                            console.error(`No synth found for track ${track.id}`);
-                            return;
-                        }
+                        if (!synth) return;
 
                         if (INSTRUMENTS[track.instrument].isDrum) {
                             const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
                             if (drumType && typeof synth.player === 'function') {
                                 synth.player(drumType).start(time);
-                                console.log(`Playing drum ${drumType} at time ${time}`);
                             }
-                        } else if (typeof synth.triggerAttackRelease === 'function') {
-                            // Calculate note length in seconds based on tempo
+                        } else {
                             const noteLengthInSeconds = (60 / tempo) * 
                                 (note.length === '1n' ? 4 : 
                                  note.length === '2n' ? 2 :
@@ -987,37 +950,33 @@ export default function MusicMaker() {
                                  note.length === '8n' ? 0.5 :
                                  note.length === '16n' ? 0.25 : 0.5);
                             
-                            // Ensure the note length is at least 0.1 seconds to prevent timing issues
                             const safeNoteLength = Math.max(0.1, noteLengthInSeconds);
-                            
-                            synth.triggerAttackRelease(
-                                note.pitch,
-                                safeNoteLength,
-                                time
-                            );
-                            console.log(`Playing note ${note.pitch} at time ${time} for ${safeNoteLength} seconds`);
+                            synth.triggerAttackRelease(note.pitch, safeNoteLength, time);
                         }
                     } catch (error) {
                         console.error(`Error playing note in track ${track.id}:`, error);
                     }
                 }, []);
 
-                // Add all grid positions to the part, including empty ones
-                for (let x = 0; x <= maxX; x++) {
-                    const timeInSeconds = (x * 60) / (tempo * STEPS_PER_BEAT);
-                    const notes = noteGroups.get(x) || [];
-                    
-                    // Add a small offset to ensure unique times for simultaneous notes
+                // Add notes to the part with precise timing
+                const sortedTimes = Array.from(noteGroups.keys()).sort((a, b) => a - b);
+                let lastTime = -1;
+                
+                sortedTimes.forEach(time => {
+                    const notes = noteGroups.get(time);
                     notes.forEach((note, index) => {
-                        const offset = index * 0.01; // 10ms offset
-                        part.add(timeInSeconds + offset, note);
+                        // Ensure each note has a unique time by adding a small offset
+                        const offset = index * 0.001; // 1ms offset
+                        const adjustedTime = Math.max(time + offset, lastTime + 0.001);
+                        lastTime = adjustedTime;
+                        part.add(adjustedTime, note);
                     });
-                }
+                });
 
                 // Start the part
                 part.start(0);
-                part.loop = false;
-                part.loopEnd = "1m";
+                part.loop = isLooping;
+                part.loopEnd = loopEnd;
 
                 // Store the part for cleanup
                 if (!partRefs.current[track.id]) {
@@ -1026,152 +985,49 @@ export default function MusicMaker() {
                 partRefs.current[track.id].push(part);
             }
 
-            // Schedule piano roll notes if they exist
-            if (pianoRollNotes.length > 0) {
-                const track = tracks.find(t => t.id === selectedTrack);
-                if (!track) return;
-
-                // Initialize synth if needed
-                if (!synthRefs.current[selectedTrack]) {
-                    console.log(`Initializing synth for piano roll`);
-                    const instrument = INSTRUMENTS[track.instrument];
-                    if (instrument.isDrum) {
-                        const drumPlayer = instrument.synth();
-                        synthRefs.current[selectedTrack] = drumPlayer;
-                        drumPlayer.connect(masterVolume);
-                    } else {
-                        const synth = instrument.synth();
-                        synthRefs.current[selectedTrack] = synth;
-                        synth.connect(masterVolume);
-                        console.log(`Synth initialized for piano roll`);
-                    }
-                }
-
-                const pianoRollPart = new Tone.Part((time, note) => {
-                    try {
-                        const synth = synthRefs.current[selectedTrack];
-                        if (!synth) {
-                            console.error('No synth found for piano roll');
-                            return;
-                        }
-
-                        if (INSTRUMENTS[track.instrument].isDrum) {
-                            const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
-                            if (drumType && typeof synth.player === 'function') {
-                                synth.player(drumType).start(time);
-                                console.log(`Playing drum ${drumType} at time ${time}`);
-                            }
-                        } else if (typeof synth.triggerAttackRelease === 'function') {
-                            const noteLengthInSeconds = (60 / tempo) * 0.5; // Default to 8th note length
-                            const safeNoteLength = Math.max(0.1, noteLengthInSeconds);
-                            
-                            synth.triggerAttackRelease(
-                                note.pitch,
-                                safeNoteLength,
-                                time
-                            );
-                            console.log(`Playing piano roll note ${note.pitch} at time ${time}`);
-                        }
-                    } catch (error) {
-                        console.error('Error playing piano roll note:', error);
-                    }
-                }, []);
-
-                // Group piano roll notes by time
-                const pianoRollGroups = new Map();
-                pianoRollNotes.forEach(note => {
-                    const timeInSeconds = (note.x * 60) / (tempo * STEPS_PER_BEAT);
-                    const group = pianoRollGroups.get(timeInSeconds) || [];
-                    group.push(note);
-                    pianoRollGroups.set(timeInSeconds, group);
-                });
-
-                // Add notes to the part
-                pianoRollGroups.forEach((notes, time) => {
-                    notes.forEach((note, index) => {
-                        const offset = index * 0.01; // 10ms offset
-                        pianoRollPart.add(time + offset, note);
-                    });
-                });
-
-                // Start the piano roll part
-                pianoRollPart.start(0);
-                pianoRollPart.loop = false;
-                pianoRollPart.loopEnd = "1m";
-
-                // Store the part for cleanup
-                if (!partRefs.current['pianoRoll']) {
-                    partRefs.current['pianoRoll'] = [];
-                }
-                partRefs.current['pianoRoll'].push(pianoRollPart);
-            }
-
-            // Start playback with a small offset to ensure proper timing
+            // Start playback with a small delay to ensure everything is ready
             setIsPlaying(true);
-            console.log('Playback state set to playing');
-            
-            // Start transport with a small delay to ensure everything is ready
             setTimeout(() => {
                 Tone.Transport.start('+0.1');
-                console.log('Transport started for playback');
             }, 100);
 
         } catch (error) {
             console.error('Playback error:', error);
             setIsPlaying(false);
-            // Clean up on error
             Tone.Transport.stop();
             Tone.Transport.cancel();
-            console.log('Transport stopped and cleared due to error');
         }
     };
 
+    // Update the stopPlayback function to also reset loop state
     const stopPlayback = () => {
         console.log('Stopping playback...');
         setIsPlaying(false);
         Tone.Transport.stop();
         Tone.Transport.cancel();
         
+        // Reset loop state
+        Tone.Transport.loop = false;
+        setIsLooping(false);
+        
         // Clean up parts
         Object.values(partRefs.current).forEach(parts => {
             parts.forEach(part => {
                 if (part && typeof part.dispose === 'function') {
                     part.dispose();
-                    console.log('Part disposed');
                 }
             });
         });
         partRefs.current = {};
         
-        // Clean up synths with proper timing
+        // Clean up synths
         Object.values(synthRefs.current).forEach(synth => {
             if (synth && typeof synth.disconnect === 'function') {
                 synth.disconnect();
                 synth.dispose();
-                console.log('Synth disconnected and disposed');
             }
         });
-
-        // Clean up effects with proper timing
-        Object.values(effectRefs.current).forEach(effectsArray => {
-            if (Array.isArray(effectsArray)) {
-                effectsArray.forEach(effect => {
-                    if (effect && typeof effect.disconnect === 'function') {
-                        effect.disconnect();
-                        effect.dispose();
-                        console.log('Effect disconnected and disposed');
-                    }
-                });
-            } else if (effectsArray && typeof effectsArray.disconnect === 'function') {
-                effectsArray.disconnect();
-                effectsArray.dispose();
-                console.log('Effect disconnected and disposed');
-            }
-        });
-        
         synthRefs.current = {};
-        effectRefs.current = {};
-        console.log('Playback stopped and resources cleaned up');
     };
 
     const clearNotes = () => {
@@ -1519,7 +1375,7 @@ export default function MusicMaker() {
         };
     }, [showVisualizer]);
 
-    // Add effect to handle transport position updates with proper timing
+    // Update the effect that handles transport position updates
     useEffect(() => {
         if (!isPlaying) return;
 
@@ -1528,28 +1384,52 @@ export default function MusicMaker() {
 
         const handleTransport = () => {
             const currentTime = Tone.Transport.seconds;
-            const currentStep = Math.floor(currentTime / timePerStep);
-            const currentCol = Math.floor(currentStep);
+            const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
             
-            // Check if we've reached the loop end point
-            if (isLooping && currentTime >= loopEnd) {
-                Tone.Transport.seconds = 0;
-                return;
+            // Calculate the maximum note position across all tracks
+            const maxNotePosition = Math.max(
+                ...tracks.flatMap(track => 
+                    track.notes.map(note => note.x)
+                ),
+                0
+            );
+            
+            // Calculate loop end point in seconds
+            const loopEnd = (maxNotePosition + 1) * timePerStep;
+            
+            let adjustedTime = currentTime;
+            let currentStep;
+            let currentCol;
+
+            if (isLooping) {
+                // If looping is enabled, strictly enforce loop boundaries
+                adjustedTime = currentTime % loopEnd;
+                currentStep = Math.floor(adjustedTime / timePerStep);
+                currentCol = Math.min(currentStep, maxNotePosition);
+                
+                // Force transport position to stay within loop boundaries
+                if (currentTime >= loopEnd) {
+                    Tone.Transport.seconds = adjustedTime;
+                }
+            } else {
+                // If looping is disabled, allow the time to continue past the loop point
+                currentStep = Math.floor(currentTime / timePerStep);
+                currentCol = Math.floor(currentStep);
             }
             
-            // Always update the current column and playback position for continuous movement
+            // Update the current column and playback position
             setCurrentColumn(currentCol);
-            setPlaybackPosition(currentTime.toFixed(2));
+            setPlaybackPosition(adjustedTime.toFixed(2));
             lastUpdateTime = currentTime;
         };
 
-        // Listen for transport position changes more frequently for smoother updates
+        // Listen for transport position changes
         const transportInterval = setInterval(handleTransport, updateInterval);
 
         return () => {
             clearInterval(transportInterval);
         };
-    }, [isPlaying, timePerStep, currentColumn, isLooping, loopEnd]);
+    }, [isPlaying, tempo, tracks, isLooping]);
 
     // MIDI Setup
     useEffect(() => {
@@ -2228,6 +2108,53 @@ export default function MusicMaker() {
         };
     }, [tracks, isPlaying]);
 
+    // Add this function to handle loop state changes
+    const toggleLoop = () => {
+        const newLoopState = !isLooping;
+        setIsLooping(newLoopState);
+        
+        if (isPlaying) {
+            // If currently playing, update the loop state
+            Tone.Transport.loop = newLoopState;
+            Object.values(partRefs.current).forEach(parts => {
+                parts.forEach(part => {
+                    if (part) {
+                        part.loop = newLoopState;
+                    }
+                });
+            });
+            
+            // If turning off loop, ensure transport continues past loop point
+            if (!newLoopState) {
+                const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
+                const maxNotePosition = Math.max(
+                    ...tracks.flatMap(track => 
+                        track.notes.map(note => note.x)
+                    ),
+                    0
+                );
+                const loopEnd = (maxNotePosition + 1) * timePerStep;
+                
+                if (Tone.Transport.seconds >= loopEnd) {
+                    Tone.Transport.seconds = loopEnd;
+                }
+            }
+        }
+    };
+
+    // Add this effect near other useEffect hooks
+    useEffect(() => {
+        return () => {
+            // Cleanup when component unmounts
+            if (isPlaying) {
+                stopPlayback();
+            }
+            // Reset loop state
+            Tone.Transport.loop = false;
+            setIsLooping(false);
+        };
+    }, [isPlaying]);
+
     return (
         <div className="flex flex-col items-center space-y-4 p-4">
             <div className="flex flex-wrap gap-4 justify-center">
@@ -2362,7 +2289,7 @@ export default function MusicMaker() {
                     <option value={16}>1/16</option>
                 </select>
                 <button
-                    onClick={() => setIsLooping(!isLooping)}
+                    onClick={toggleLoop}
                     className={`px-4 py-2 ${isLooping ? 'bg-green-600' : 'bg-gray-700'} text-white rounded hover:bg-green-700 flex items-center gap-2`}
                 >
                     <FaSync /> {isLooping ? 'Loop On' : 'Loop Off'}

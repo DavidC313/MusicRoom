@@ -241,7 +241,7 @@ export default function ProfilePage() {
                                 />
                             ) : (
                                 <Image
-                                    src="/default-profile.png"
+                                    src="/images/default-profile.svg"
                                     alt="Default Profile"
                                     width={32}
                                     height={32}
@@ -289,7 +289,7 @@ export default function ProfilePage() {
                                     ) : (
                                         <div className="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
                                             <Image
-                                                src="/default-profile.png"
+                                                src="/images/default-profile.svg"
                                                 alt="Default Profile"
                                                 width={128}
                                                 height={128}

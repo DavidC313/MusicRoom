@@ -83,7 +83,7 @@ export default function MusicRoom() {
                                     />
                                 ) : (
                                     <Image
-                                        src="/default-profile.png"
+                                        src="/images/default-profile.svg"
                                         alt="Default Profile"
                                         width={32}
                                         height={32}
