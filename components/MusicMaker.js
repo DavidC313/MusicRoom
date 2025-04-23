@@ -965,11 +965,14 @@ export default function MusicMaker() {
                 sortedTimes.forEach(time => {
                     const notes = noteGroups.get(time);
                     notes.forEach((note, index) => {
-                        // Ensure each note has a unique time by adding a small offset
-                        const offset = index * 0.001; // 1ms offset
-                        const adjustedTime = Math.max(time + offset, lastTime + 0.001);
+                        // Ensure each note has a unique time by using a deterministic offset
+                        const offset = index * 0.0001; // 0.1ms offset
+                        const adjustedTime = Math.max(time + offset, lastTime + 0.0001);
                         lastTime = adjustedTime;
-                        part.add(adjustedTime, note);
+                        
+                        // Add a small buffer between notes to prevent timing conflicts
+                        const finalTime = adjustedTime + 0.0001;
+                        part.add(finalTime, note);
                     });
                 });
 
