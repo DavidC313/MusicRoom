@@ -851,24 +851,34 @@ export default function MusicMaker() {
                 console.log('Audio context started');
             }
 
-            // Initialize audio and transport
-            const initialized = await initializeAudioAndTransport();
-            if (!initialized) {
-                throw new Error('Failed to initialize audio and transport');
-            }
-
             // Set tempo
             Tone.Transport.bpm.value = tempo;
             console.log(`Tempo set to ${tempo} BPM`);
 
-            // Start playback
-            await playSequence();
-            console.log('Playback started');
+            // Initialize synths for each track
+            tracks.forEach(track => {
+                if (!synthRefs.current[track.id]) {
+                    const instrument = INSTRUMENTS[track.instrument];
+                    if (instrument.isDrum) {
+                        const drumPlayer = instrument.synth();
+                        synthRefs.current[track.id] = drumPlayer;
+                        drumPlayer.connect(Tone.getDestination());
+                        console.log(`Drum player initialized for track ${track.id}`);
+                    } else {
+                        const synth = instrument.synth();
+                        synthRefs.current[track.id] = synth;
+                        synth.connect(Tone.getDestination());
+                        console.log(`Synth initialized for track ${track.id}`);
+                    }
+                }
+            });
 
+            return true;
         } catch (error) {
-            console.error('Error starting playback:', error);
+            console.error('Error initializing audio and transport:', error);
+            return false;
         }
-    }, [tempo, tracks, isLooping]);
+    }, [tempo, tracks]);
 
     // Update the playSequence function to properly handle loop state and transport
     const playSequence = async () => {
@@ -887,142 +897,102 @@ export default function MusicMaker() {
                 throw new Error('Failed to initialize audio and transport');
             }
 
+            // Stop any existing playback and clean up
+            Tone.Transport.stop();
+            Tone.Transport.cancel();
+            Object.values(partRefs.current).forEach(parts => {
+                parts.forEach(part => part?.dispose?.());
+            });
+            partRefs.current = {};
+            
             // Set tempo and timing parameters
             Tone.Transport.bpm.value = tempo;
-            Tone.Transport.swing = 0; // No swing for precise timing
+            Tone.Transport.swing = 0;
             
-            // Calculate precise timing values
+            // Calculate timing values
             const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
             const timePerBar = timePerStep * STEPS_PER_BAR;
             
-            // Find the maximum note position across all tracks
+            // Find the maximum note position
             const maxNotePosition = Math.max(
                 ...tracks.flatMap(track => 
                     track.notes.map(note => note.x)
                 ),
-                0 // Default to 0 if no notes
+                0
             );
             
-            // Calculate loop end point in seconds
+            // Set up looping
             const loopEnd = (maxNotePosition + 1) * timePerStep;
-            
-            // Set up looping with proper boundaries
             Tone.Transport.loop = isLooping;
             Tone.Transport.loopStart = 0;
             Tone.Transport.loopEnd = loopEnd;
-            
-            // Reset transport position to start
             Tone.Transport.seconds = 0;
-            
-            // Clean up any existing parts
-            Object.values(partRefs.current).forEach(parts => {
-                parts.forEach(part => {
-                    if (part && typeof part.dispose === 'function') {
-                        part.dispose();
+
+            // Create a master part to handle all tracks
+            const masterPart = new Tone.Part((time, event) => {
+                const { trackId, note } = event;
+                const synth = synthRefs.current[trackId];
+                if (!synth) return;
+
+                if (INSTRUMENTS[tracks.find(t => t.id === trackId)?.instrument]?.isDrum) {
+                    const drumType = INSTRUMENTS[tracks.find(t => t.id === trackId)?.instrument]?.drumMap[note.pitch];
+                    if (drumType) {
+                        synth.player(drumType).start(time);
                     }
-                });
-            });
-            partRefs.current = {};
-            
-            // Schedule all notes for all tracks
+                } else {
+                    const noteLength = (60 / tempo) * 
+                        (note.length === '1n' ? 4 : 
+                         note.length === '2n' ? 2 :
+                         note.length === '4n' ? 1 :
+                         note.length === '8n' ? 0.5 :
+                         note.length === '16n' ? 0.25 : 0.5);
+                    
+                    synth.triggerAttackRelease(note.pitch, Math.max(0.1, noteLength), time);
+                }
+            }, []);
+
+            // Schedule notes for each track
             for (const track of tracks) {
                 if (track.muted) continue;
 
                 // Initialize synth if needed
                 if (!synthRefs.current[track.id]) {
                     const instrument = INSTRUMENTS[track.instrument];
-                    if (instrument.isDrum) {
-                        const drumPlayer = instrument.synth();
-                        synthRefs.current[track.id] = drumPlayer;
-                        drumPlayer.connect(Tone.getDestination());
-                    } else {
-                        const synth = instrument.synth();
-                        synthRefs.current[track.id] = synth;
-                        synth.connect(Tone.getDestination());
-                    }
+                    const synth = instrument.synth();
+                    synthRefs.current[track.id] = synth;
+                    synth.connect(Tone.getDestination());
                 }
 
-                // Sort notes by time and group by position
-                const sortedNotes = [...track.notes].sort((a, b) => a.x - b.x);
-                const noteGroups = new Map();
-                
-                // Group notes by their time position
-                sortedNotes.forEach(note => {
-                    const timeInSeconds = note.x * timePerStep;
-                    const group = noteGroups.get(timeInSeconds) || [];
-                    group.push(note);
-                    noteGroups.set(timeInSeconds, group);
+                // Add notes to the master part
+                track.notes.forEach(note => {
+                    const time = note.x * timePerStep;
+                    masterPart.add(time, { trackId: track.id, note });
                 });
-
-                // Create a part for this track
-                const part = new Tone.Part((time, note) => {
-                    try {
-                        const synth = synthRefs.current[track.id];
-                        if (!synth) return;
-
-                        if (INSTRUMENTS[track.instrument].isDrum) {
-                            const drumType = INSTRUMENTS[track.instrument].drumMap[note.pitch];
-                            if (drumType && typeof synth.player === 'function') {
-                                synth.player(drumType).start(time);
-                            }
-                        } else {
-                            const noteLengthInSeconds = (60 / tempo) * 
-                                (note.length === '1n' ? 4 : 
-                                 note.length === '2n' ? 2 :
-                                 note.length === '4n' ? 1 :
-                                 note.length === '8n' ? 0.5 :
-                                 note.length === '16n' ? 0.25 : 0.5);
-                            
-                            const safeNoteLength = Math.max(0.1, noteLengthInSeconds);
-                            synth.triggerAttackRelease(note.pitch, safeNoteLength, time);
-                        }
-                    } catch (error) {
-                        console.error(`Error playing note in track ${track.id}:`, error);
-                    }
-                }, []);
-
-                // Add notes to the part with precise timing
-                const sortedTimes = Array.from(noteGroups.keys()).sort((a, b) => a - b);
-                let lastTime = -1;
-                
-                sortedTimes.forEach(time => {
-                    const notes = noteGroups.get(time);
-                    notes.forEach((note, index) => {
-                        // Ensure each note has a unique time by using a deterministic offset
-                        const offset = index * 0.0001; // 0.1ms offset
-                        const adjustedTime = Math.max(time + offset, lastTime + 0.0001);
-                        lastTime = adjustedTime;
-                        
-                        // Add a small buffer between notes to prevent timing conflicts
-                        const finalTime = adjustedTime + 0.0001;
-                        part.add(finalTime, note);
-                    });
-                });
-
-                // Start the part with proper loop settings
-                part.start(0);
-                part.loop = isLooping;
-                part.loopEnd = loopEnd;
-
-                // Store the part for cleanup
-                if (!partRefs.current[track.id]) {
-                    partRefs.current[track.id] = [];
-                }
-                partRefs.current[track.id].push(part);
             }
 
-            // Start playback with a small delay to ensure everything is ready
-            setIsPlaying(true);
-            setTimeout(() => {
-                try {
-                Tone.Transport.start('+0.1');
-                } catch (error) {
-                    console.error('Error starting transport:', error);
-                    setIsPlaying(false);
-                    Tone.Transport.stop();
-                    Tone.Transport.cancel();
+            // Store the master part
+            partRefs.current.master = [masterPart];
+
+            // Add transport event handlers
+            Tone.Transport.on('stop', () => {
+                if (isPlaying) {
+                    console.log('Transport stopped unexpectedly, restarting...');
+                    Tone.Transport.start('+0.1');
                 }
-            }, 100);
+            });
+
+            Tone.Transport.on('start', () => {
+                console.log('Transport started');
+            });
+
+            // Start the master part and transport
+            masterPart.start(0);
+            masterPart.loop = isLooping;
+            masterPart.loopEnd = loopEnd;
+
+            // Start playback
+            setIsPlaying(true);
+            Tone.Transport.start('+0.1');
 
         } catch (error) {
             console.error('Playback error:', error);
@@ -1030,17 +1000,9 @@ export default function MusicMaker() {
             Tone.Transport.stop();
             Tone.Transport.cancel();
             
-            // Clean up any created parts
+            // Clean up
             Object.values(partRefs.current).forEach(parts => {
-                parts.forEach(part => {
-                    try {
-                        if (part && typeof part.dispose === 'function') {
-                            part.dispose();
-                        }
-                    } catch (error) {
-                        console.error('Error disposing part:', error);
-                    }
-                });
+                parts.forEach(part => part?.dispose?.());
             });
             partRefs.current = {};
         }
@@ -2061,7 +2023,7 @@ export default function MusicMaker() {
                                         volume.volume.setValueAtTime(volumeValue, Tone.context.currentTime);
                                     } else if (typeof volume.volume.value !== 'undefined') {
                                         volume.volume.value = volumeValue;
-                                    }
+                        }
                                 } catch (error) {
                                     console.error(`Error setting volume for drum ${name}:`, error);
                                 }

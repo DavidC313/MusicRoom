@@ -7,7 +7,9 @@ export async function GET(
     { params }: { params: { uid: string } }
 ) {
     try {
-        console.log('Starting GET request for user:', params.uid);
+        // Await the params to ensure they're available
+        const { uid } = await Promise.resolve(params);
+        console.log('Starting GET request for user:', uid);
         
         // Verify the user is authenticated
         const authHeader = request.headers.get('Authorization');
@@ -36,8 +38,8 @@ export async function GET(
         }
 
         // Check if the requested user ID matches the authenticated user
-        if (decodedToken.uid !== params.uid) {
-            console.log('User ID mismatch:', { requestedUid: params.uid, tokenUid: decodedToken.uid });
+        if (decodedToken.uid !== uid) {
+            console.log('User ID mismatch:', { requestedUid: uid, tokenUid: decodedToken.uid });
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
@@ -45,7 +47,7 @@ export async function GET(
         console.log('Fetching user document from Firestore...');
         let userDoc;
         try {
-            userDoc = await db.collection('users').doc(params.uid).get();
+            userDoc = await db.collection('users').doc(uid).get();
             console.log('Firestore document retrieved successfully');
         } catch (firestoreError) {
             console.error('Firestore fetch error:', firestoreError);
@@ -68,7 +70,7 @@ export async function GET(
             };
             
             try {
-                await db.collection('users').doc(params.uid).set(defaultProfile);
+                await db.collection('users').doc(uid).set(defaultProfile);
                 console.log('Default profile created successfully');
                 return NextResponse.json(defaultProfile);
             } catch (createError) {
@@ -100,16 +102,9 @@ export async function GET(
             updatedAt: data.updatedAt || new Date().toISOString()
         });
     } catch (error) {
-        console.error('Error in GET request:', error);
-        if (error instanceof Error) {
-            console.error('Error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name
-            });
-        }
+        console.error('Unexpected error in GET handler:', error);
         return NextResponse.json({ 
-            error: 'Internal Server Error',
+            error: 'Internal server error',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 });
     }
@@ -120,6 +115,9 @@ export async function PUT(
     { params }: { params: { uid: string } }
 ) {
     try {
+        // Await the params to ensure they're available
+        const { uid } = await Promise.resolve(params);
+        
         // Verify the user is authenticated
         const authHeader = request.headers.get('Authorization');
         if (!authHeader) {
@@ -134,46 +132,43 @@ export async function PUT(
         let decodedToken;
         try {
             decodedToken = await auth.verifyIdToken(token);
-        } catch (tokenError) {
-            console.error('Token verification failed:', tokenError);
-            return NextResponse.json({ 
-                error: 'Invalid token',
-                details: tokenError instanceof Error ? tokenError.message : 'Unknown error'
-            }, { status: 401 });
+        } catch (error) {
+            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
         }
 
         // Check if the requested user ID matches the authenticated user
-        if (decodedToken.uid !== params.uid) {
+        if (decodedToken.uid !== uid) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
-        const profileData = await request.json();
+        // Parse the request body
+        const body = await request.json();
         
-        // Update user profile data in Firestore
+        // Validate the request body
+        if (!body || typeof body !== 'object') {
+            return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+        }
+
+        // Update the user profile
+        const updateData = {
+            ...body,
+            updatedAt: new Date().toISOString()
+        };
+
         try {
-            await db.collection('users').doc(params.uid).set({
-                ...profileData,
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
-            return NextResponse.json({ success: true });
-        } catch (updateError) {
-            console.error('Error updating profile:', updateError);
+            await db.collection('users').doc(uid).update(updateData);
+            return NextResponse.json({ message: 'Profile updated successfully' });
+        } catch (error) {
+            console.error('Error updating profile:', error);
             return NextResponse.json({ 
                 error: 'Failed to update profile',
-                details: updateError instanceof Error ? updateError.message : 'Unknown error'
+                details: error instanceof Error ? error.message : 'Unknown error'
             }, { status: 500 });
         }
     } catch (error) {
-        console.error('Error in PUT request:', error);
-        if (error instanceof Error) {
-            console.error('Error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name
-            });
-        }
+        console.error('Unexpected error in PUT handler:', error);
         return NextResponse.json({ 
-            error: 'Internal Server Error',
+            error: 'Internal server error',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 });
     }
@@ -184,28 +179,47 @@ export async function DELETE(
     { params }: { params: { uid: string } }
 ) {
     try {
+        // Await the params to ensure they're available
+        const { uid } = await Promise.resolve(params);
+        
+        // Verify the user is authenticated
         const authHeader = request.headers.get('Authorization');
-        if (!authHeader?.startsWith('Bearer ')) {
+        if (!authHeader) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await auth.verifyIdToken(token);
-
-        // Check if the user is an admin
-        if (decodedToken.uid !== 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2') {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!token) {
+            return NextResponse.json({ error: 'Invalid Authorization header format' }, { status: 401 });
         }
 
-        // Delete the user
-        await getAuth().deleteUser(params.uid);
+        let decodedToken;
+        try {
+            decodedToken = await auth.verifyIdToken(token);
+        } catch (error) {
+            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        }
 
-        return NextResponse.json({ success: true });
+        // Check if the requested user ID matches the authenticated user
+        if (decodedToken.uid !== uid) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
+        try {
+            await db.collection('users').doc(uid).delete();
+            return NextResponse.json({ message: 'Profile deleted successfully' });
+        } catch (error) {
+            console.error('Error deleting profile:', error);
+            return NextResponse.json({ 
+                error: 'Failed to delete profile',
+                details: error instanceof Error ? error.message : 'Unknown error'
+            }, { status: 500 });
+        }
     } catch (error) {
-        console.error('Error deleting user:', error);
-        return NextResponse.json(
-            { error: 'Failed to delete user' },
-            { status: 500 }
-        );
+        console.error('Unexpected error in DELETE handler:', error);
+        return NextResponse.json({ 
+            error: 'Internal server error',
+            details: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 500 });
     }
 } 
