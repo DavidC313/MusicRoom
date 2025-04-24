@@ -7,6 +7,7 @@ import Head from 'next/head';
 import MusicMaker from '@/components/MusicMaker';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
+import Navbar from '@/components/Navbar';
 
 export default function MusicRoom() {
     const { user, logout } = useAuth();
@@ -60,51 +61,7 @@ export default function MusicRoom() {
             </Head>
 
             <main className="flex flex-col min-h-screen">
-                <header className="bg-gray-800 p-4 flex justify-between items-center border-b border-gray-700">
-                    <div className="flex items-center space-x-4">
-                        <Link href="/music-room" className="text-blue-400 text-xl font-bold">
-                            Music Room
-                        </Link>
-                        <Link href="/profile" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
-                            Profile
-                        </Link>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                        <Link href="/profile" className="flex items-center space-x-2 group">
-                            <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-gray-600 group-hover:border-blue-400 transition-colors">
-                                {profileImage ? (
-                                    <Image
-                                        src={profileImage}
-                                        alt="Profile"
-                                        width={32}
-                                        height={32}
-                                        className="object-cover w-full h-full"
-                                        priority
-                                    />
-                                ) : (
-                                    <Image
-                                        src="/images/default-profile.svg"
-                                        alt="Default Profile"
-                                        width={32}
-                                        height={32}
-                                        className="object-cover w-full h-full"
-                                        priority
-                                    />
-                                )}
-                            </div>
-                            <span className="text-white text-sm hidden md:block">
-                                {user.email}
-                            </span>
-                        </Link>
-                        <button 
-                            onClick={logout} 
-                            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                        >
-                            Logout
-                        </button>
-                    </div>
-                </header>
-
+                <Navbar />
                 <div className="flex-1 p-6">
                     <MusicMaker />
                 </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as Tone from 'tone';
 import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste, FaSync } from 'react-icons/fa';
 
@@ -841,69 +841,34 @@ export default function MusicMaker() {
     };
 
     // Initialize audio and transport
-    const initializeAudioAndTransport = async () => {
+    const initializeAudioAndTransport = useCallback(async () => {
         try {
+            console.log('Starting playback sequence...');
+            
             // Ensure audio context is running
             if (Tone.context.state !== 'running') {
                 await Tone.start();
                 console.log('Audio context started');
             }
 
-            // Create master volume control if not exists
-            if (!Tone.getDestination().connected) {
-                const masterVolume = new Tone.Volume(-6).toDestination();
-                console.log('Master volume created');
+            // Initialize audio and transport
+            const initialized = await initializeAudioAndTransport();
+            if (!initialized) {
+                throw new Error('Failed to initialize audio and transport');
             }
 
-            // Initialize transport with smoother timing
+            // Set tempo
             Tone.Transport.bpm.value = tempo;
-            Tone.Transport.swing = 0; // No swing for precise timing
-            Tone.Transport.loop = false;
             console.log(`Tempo set to ${tempo} BPM`);
 
-            // Ensure transport is stopped and cleared
-            Tone.Transport.stop();
-            Tone.Transport.cancel();
-            console.log('Transport cleared');
+            // Start playback
+            await playSequence();
+            console.log('Playback started');
 
-            // Initialize all synths and effects
-            for (const track of tracks) {
-                if (!synthRefs.current[track.id]) {
-                    console.log(`Initializing synth for track ${track.id}`);
-                    const instrument = INSTRUMENTS[track.instrument];
-                    if (instrument.isDrum) {
-                        const drumPlayer = instrument.synth();
-                        synthRefs.current[track.id] = drumPlayer;
-                        drumPlayer.connect(Tone.getDestination());
-                    } else {
-                        const synth = instrument.synth();
-                        synthRefs.current[track.id] = synth;
-                        synth.connect(Tone.getDestination());
-                    }
-                }
-
-                // Initialize effects if needed
-                if (track.effects.length > 0 && !effectRefs.current[track.id]) {
-                    console.log(`Initializing effects for track ${track.id}`);
-                    effectRefs.current[track.id] = [];
-                    let lastNode = synthRefs.current[track.id];
-                    
-                    track.effects.forEach(effectName => {
-                        const effect = EFFECTS[effectName].effect();
-                        effectRefs.current[track.id].push(effect);
-                        lastNode.connect(effect);
-                        lastNode = effect;
-                    });
-                    lastNode.connect(Tone.getDestination());
-                }
-            }
-
-            return true;
         } catch (error) {
-            console.error('Error initializing audio and transport:', error);
-            return false;
+            console.error('Error starting playback:', error);
         }
-    };
+    }, [tempo, tracks, isLooping]);
 
     // Update the playSequence function to properly handle loop state and transport
     const playSequence = async () => {
@@ -915,7 +880,7 @@ export default function MusicMaker() {
                 await Tone.start();
                 console.log('Audio context started');
             }
-
+            
             // Initialize audio and transport
             const initialized = await initializeAudioAndTransport();
             if (!initialized) {
@@ -1050,7 +1015,7 @@ export default function MusicMaker() {
             setIsPlaying(true);
             setTimeout(() => {
                 try {
-                    Tone.Transport.start('+0.1');
+                Tone.Transport.start('+0.1');
                 } catch (error) {
                     console.error('Error starting transport:', error);
                     setIsPlaying(false);
@@ -1428,7 +1393,7 @@ export default function MusicMaker() {
             anchor.href = url;
             anchor.click();
             console.log('Download initiated');
-            
+
         } catch (error) {
             console.error('Error during export:', error);
         } finally {
@@ -1445,7 +1410,7 @@ export default function MusicMaker() {
                 offlineContext.dispose();
             }
             if (originalContext) {
-                Tone.setContext(originalContext);
+            Tone.setContext(originalContext);
             }
             setIsExporting(false);
             console.log('Export process completed, resources cleaned up');
@@ -1480,89 +1445,89 @@ export default function MusicMaker() {
         const ctx = canvas.getContext('2d');
         let analyser = null;
         let animationFrameId = null;
-
+        
         const initVisualizer = async () => {
             try {
-                // Create analyser node
+        // Create analyser node
                 analyser = new Tone.Analyser({
-                    type: "waveform",
-                    size: 2048,
-                    smoothing: 0.8
-                });
-                
-                // Connect master output to analyser
-                Tone.getDestination().connect(analyser);
-                console.log('Analyser connected to master output');
+            type: "waveform",
+            size: 2048,
+            smoothing: 0.8
+        });
+        
+        // Connect master output to analyser
+        Tone.getDestination().connect(analyser);
+        console.log('Analyser connected to master output');
 
-                // Create gradient for the visualizer
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, '#3b82f6');
-                gradient.addColorStop(0.5, '#8b5cf6');
-                gradient.addColorStop(1, '#ec4899');
+        // Create gradient for the visualizer
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#3b82f6');
+        gradient.addColorStop(0.5, '#8b5cf6');
+        gradient.addColorStop(1, '#ec4899');
 
-                const draw = () => {
-                    if (!showVisualizer) return;
+        const draw = () => {
+            if (!showVisualizer) return;
 
-                    try {
-                        // Get the waveform data
-                        const waveform = analyser.getValue();
-                        console.log('Waveform data:', waveform);
+            try {
+                // Get the waveform data
+                const waveform = analyser.getValue();
+                console.log('Waveform data:', waveform);
 
-                        const width = canvas.width;
-                        const height = canvas.height;
+                const width = canvas.width;
+                const height = canvas.height;
 
-                        // Clear canvas with a fade effect
-                        ctx.fillStyle = 'rgba(17, 24, 39, 0.3)'; // Increased alpha for longer trails
-                        ctx.fillRect(0, 0, width, height);
+                // Clear canvas with a fade effect
+                ctx.fillStyle = 'rgba(17, 24, 39, 0.3)'; // Increased alpha for longer trails
+                ctx.fillRect(0, 0, width, height);
 
-                        // Draw the waveform
-                        ctx.beginPath();
-                        ctx.lineWidth = 2;
-                        ctx.strokeStyle = gradient;
-                        ctx.shadowBlur = 10;
-                        ctx.shadowColor = '#3b82f6';
+                // Draw the waveform
+                ctx.beginPath();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = gradient;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#3b82f6';
 
-                        const sliceWidth = width / waveform.length;
-                        let x = 0;
+                const sliceWidth = width / waveform.length;
+                let x = 0;
 
-                        // Draw the main waveform with smoothing
-                        for (let i = 0; i < waveform.length; i++) {
-                            const v = waveform[i];
-                            const y = (v + 1) / 2 * height;
+                // Draw the main waveform with smoothing
+                for (let i = 0; i < waveform.length; i++) {
+                    const v = waveform[i];
+                    const y = (v + 1) / 2 * height;
 
-                            if (i === 0) {
-                                ctx.moveTo(x, y);
-                            } else {
-                                // Use quadratic curves for smoother lines
-                                const prevX = x - sliceWidth;
-                                const prevY = (waveform[i - 1] + 1) / 2 * height;
-                                const cpX = (x + prevX) / 2;
-                                ctx.quadraticCurveTo(cpX, prevY, x, y);
-                            }
-
-                            x += sliceWidth;
-                        }
-
-                        ctx.stroke();
-
-                        // Mirror effect
-                        ctx.save();
-                        ctx.scale(1, -1);
-                        ctx.translate(0, -height);
-                        ctx.globalAlpha = 0.3;
-                        ctx.stroke();
-                        ctx.restore();
-
-                        // Request next frame
-                        animationFrameId = requestAnimationFrame(draw);
-                    } catch (error) {
-                        console.error('Error in visualizer draw function:', error);
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        // Use quadratic curves for smoother lines
+                        const prevX = x - sliceWidth;
+                        const prevY = (waveform[i - 1] + 1) / 2 * height;
+                        const cpX = (x + prevX) / 2;
+                        ctx.quadraticCurveTo(cpX, prevY, x, y);
                     }
-                };
 
-                // Start drawing
-                console.log('Starting visualizer drawing');
-                draw();
+                    x += sliceWidth;
+                }
+
+                ctx.stroke();
+
+                // Mirror effect
+                ctx.save();
+                ctx.scale(1, -1);
+                ctx.translate(0, -height);
+                ctx.globalAlpha = 0.3;
+                ctx.stroke();
+                ctx.restore();
+
+                // Request next frame
+                animationFrameId = requestAnimationFrame(draw);
+            } catch (error) {
+                console.error('Error in visualizer draw function:', error);
+            }
+        };
+
+        // Start drawing
+        console.log('Starting visualizer drawing');
+        draw();
 
             } catch (error) {
                 console.error('Error initializing visualizer:', error);
@@ -1580,8 +1545,8 @@ export default function MusicMaker() {
             // Clean up audio nodes
             if (analyser) {
                 try {
-                    Tone.getDestination().disconnect(analyser);
-                    analyser.dispose();
+            Tone.getDestination().disconnect(analyser);
+            analyser.dispose();
                 } catch (error) {
                     console.error('Error cleaning up analyser:', error);
                 }
@@ -1642,23 +1607,23 @@ export default function MusicMaker() {
 
         const handleMidiMessage = (message) => {
             try {
-                const [status, note, velocity] = message.data;
-                const command = status >> 4;
-                const channel = status & 0xf;
+            const [status, note, velocity] = message.data;
+            const command = status >> 4;
+            const channel = status & 0xf;
 
-                if (command === 9 && velocity > 0) { // Note on
-                    const synth = synthRefs.current[selectedTrack];
-                    if (synth) {
-                        const noteName = Tone.Frequency(note, "midi").toNote();
-                        if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
-                            const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
-                            if (drumType && typeof synth.player === 'function') {
-                                synth.player(drumType).start();
-                            }
-                        } else if (typeof synth.triggerAttackRelease === 'function') {
-                            synth.triggerAttackRelease(noteName, '8n');
+            if (command === 9 && velocity > 0) { // Note on
+                const synth = synthRefs.current[selectedTrack];
+                if (synth) {
+                    const noteName = Tone.Frequency(note, "midi").toNote();
+                    if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
+                        const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
+                        if (drumType && typeof synth.player === 'function') {
+                            synth.player(drumType).start();
                         }
+                    } else if (typeof synth.triggerAttackRelease === 'function') {
+                        synth.triggerAttackRelease(noteName, '8n');
                     }
+                }
                 }
             } catch (error) {
                 console.error('Error handling MIDI message:', error);
@@ -1669,7 +1634,7 @@ export default function MusicMaker() {
 
         return () => {
             if (selectedMidiInput) {
-                selectedMidiInput.onmidimessage = null;
+            selectedMidiInput.onmidimessage = null;
             }
         };
     }, [selectedMidiInput, midiEnabled, selectedTrack, tracks]);
@@ -2127,12 +2092,12 @@ export default function MusicMaker() {
     useEffect(() => {
         const updateTrackVolumes = () => {
             try {
-                // Check if any track is soloed
-                const anySoloed = tracks.some(t => t.solo);
-                
-                tracks.forEach(track => {
+            // Check if any track is soloed
+            const anySoloed = tracks.some(t => t.solo);
+            
+            tracks.forEach(track => {
                     try {
-                        const synth = synthRefs.current[track.id];
+                const synth = synthRefs.current[track.id];
                         const instrument = INSTRUMENTS[track.instrument];
                         
                         // Skip if no synth or if synth is not properly initialized
@@ -2157,9 +2122,9 @@ export default function MusicMaker() {
                                         }
                                     } catch (error) {
                                         console.error(`Error setting volume for drum ${name}:`, error);
-                                    }
-                                }
-                            });
+                    }
+                }
+            });
                         } else if (synth.volume) {
                             // Handle regular synth volume
                             try {
@@ -2267,7 +2232,7 @@ export default function MusicMaker() {
     }, [drumVolumes, tracks]);
 
     // Add a new function to handle play button click
-    const handlePlayButtonClick = async () => {
+    const handlePlayButtonClick = useCallback(async () => {
         try {
             console.log('Play button clicked');
             
@@ -2294,7 +2259,7 @@ export default function MusicMaker() {
         } catch (error) {
             console.error('Error starting playback:', error);
         }
-    };
+    }, [tempo, tracks, isLooping]);
 
     useEffect(() => {
         // Initialize AudioContext on component mount

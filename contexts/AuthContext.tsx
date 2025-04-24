@@ -8,34 +8,56 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   register: (email: string, password: string) => Promise<void>;
-  login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; message?: string; isAdmin?: boolean }>;
   logout: () => Promise<void>;
+  isAdmin: boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  register: async () => {},
+  login: async () => ({ success: false }),
+  logout: async () => {},
+  isAdmin: false,
+});
+
+const ADMIN_UID = 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     try {
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        console.log('Auth state changed, user:', user);
         setUser(user);
         if (user) {
           const token = await user.getIdToken();
           Cookies.set('token', token, { expires: 1 }); // Token expires in 1 day
+          // Check if user is admin using UID
+          const isAdminUser = user.uid === ADMIN_UID;
+          console.log('Checking admin status:', {
+            userUid: user.uid,
+            adminUid: ADMIN_UID,
+            isAdmin: isAdminUser
+          });
+          setIsAdmin(isAdminUser);
         } else {
           Cookies.remove('token');
+          setIsAdmin(false);
         }
         setLoading(false);
       });
@@ -72,22 +94,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; message?: string; isAdmin?: boolean }> => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const token = await userCredential.user.getIdToken();
       Cookies.set('token', token, { expires: 1 }); // Token expires in 1 day
+      const isAdminUser = userCredential.user.uid === ADMIN_UID;
+      console.log('Login admin check:', {
+        userUid: userCredential.user.uid,
+        adminUid: ADMIN_UID,
+        isAdmin: isAdminUser
+      });
+      setIsAdmin(isAdminUser);
       router.push('/music-room');
-      return { success: true };
+      return { success: true, isAdmin: isAdminUser };
     } catch (error: any) {
-      // Handle specific Firebase auth errors
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
-        return { success: false, message: 'Incorrect email or password' };
-      } else if (error.code === 'auth/too-many-requests') {
-        return { success: false, message: 'Too many failed attempts. Please try again later' };
-      } else {
-        return { success: false, message: 'An error occurred during login' };
+      let message = 'An error occurred during login';
+      if (error.code === 'auth/invalid-credential') {
+        message = 'Incorrect email or password';
+      } else if (error.code === 'auth/user-not-found') {
+        message = 'No account found with this email';
+      } else if (error.code === 'auth/wrong-password') {
+        message = 'Incorrect password';
       }
+      return { success: false, message };
     }
   };
 
@@ -95,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await auth.signOut();
       Cookies.remove('token');
+      setIsAdmin(false);
       router.push('/');
     } catch (error) {
       console.error('Error logging out:', error);
@@ -102,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, register, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, register, login, logout, isAdmin }}>
       {!loading && children}
     </AuthContext.Provider>
   );

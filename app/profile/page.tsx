@@ -8,6 +8,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Image from 'next/image';
 import Link from 'next/link';
 import { FaInstagram, FaTwitter, FaSoundcloud, FaSpotify, FaYoutube, FaLastfm } from 'react-icons/fa';
+import Navbar from '@/components/Navbar';
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
@@ -218,51 +219,7 @@ export default function ProfilePage() {
 
     return (
         <div className="min-h-screen bg-gray-900">
-            <header className="bg-gray-800 p-4 flex justify-between items-center border-b border-gray-700">
-                <div className="flex items-center space-x-4">
-                    <Link href="/music-room" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
-                        Music Room
-                    </Link>
-                    <Link href="/profile" className="text-blue-400 text-xl font-bold">
-                        Profile
-                    </Link>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <Link href="/profile" className="flex items-center space-x-2 group">
-                        <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-gray-600 group-hover:border-blue-400 transition-colors">
-                            {profileData.profileImage ? (
-                                <Image
-                                    src={profileData.profileImage}
-                                    alt="Profile"
-                                    width={32}
-                                    height={32}
-                                    className="object-cover w-full h-full"
-                                    priority
-                                />
-                            ) : (
-                                <Image
-                                    src="/images/default-profile.svg"
-                                    alt="Default Profile"
-                                    width={32}
-                                    height={32}
-                                    className="object-cover w-full h-full"
-                                    priority
-                                />
-                            )}
-                        </div>
-                        <span className="text-white text-sm hidden md:block">
-                            {user?.email}
-                        </span>
-                    </Link>
-                    <button 
-                        onClick={logout} 
-                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                    >
-                        Logout
-                    </button>
-                </div>
-            </header>
-
+            <Navbar />
             <div className="py-12 px-4 sm:px-6 lg:px-8">
                 <div className="max-w-3xl mx-auto space-y-6">
                     <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">

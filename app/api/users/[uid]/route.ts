@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth, db } from '@/utils/firebase-admin';
+import { getAuth } from 'firebase-admin/auth';
 
 export async function GET(
     request: Request,
@@ -175,5 +176,36 @@ export async function PUT(
             error: 'Internal Server Error',
             details: error instanceof Error ? error.message : 'Unknown error'
         }, { status: 500 });
+    }
+}
+
+export async function DELETE(
+    request: Request,
+    { params }: { params: { uid: string } }
+) {
+    try {
+        const authHeader = request.headers.get('Authorization');
+        if (!authHeader?.startsWith('Bearer ')) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const token = authHeader.split('Bearer ')[1];
+        const decodedToken = await auth.verifyIdToken(token);
+
+        // Check if the user is an admin
+        if (decodedToken.uid !== 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2') {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Delete the user
+        await getAuth().deleteUser(params.uid);
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        return NextResponse.json(
+            { error: 'Failed to delete user' },
+            { status: 500 }
+        );
     }
 } 
