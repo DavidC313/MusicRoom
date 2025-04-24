@@ -13,10 +13,10 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await login(email, password);
-    } catch (error) {
-      setError('Failed to login');
+    setError(''); // Clear any previous errors
+    const result = await login(email, password);
+    if (!result.success) {
+      setError(result.message || 'An error occurred during login');
     }
   };
 
@@ -61,7 +61,11 @@ export default function Login() {
               required
             />
           </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+              <p className="text-red-500 text-sm text-center">{error}</p>
+            </div>
+          )}
           <button 
             type="submit" 
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.02]"
