@@ -38,4 +38,5 @@ jobs:
           output_location: "out"
           api_location: ""
           skip_app_build: false
-          is_static_export: true 
+          is_static_export: true
+          skip_deploy_on_missing_secrets: true 
