@@ -14,6 +14,8 @@ const nextConfig = {
     eslint: {
         ignoreDuringBuilds: true,
     },
+    basePath: process.env.NODE_ENV === 'production' ? '/MusicRoom' : '',
+    assetPrefix: process.env.NODE_ENV === 'production' ? '/MusicRoom/' : '',
 }
 
 module.exports = nextConfig 
