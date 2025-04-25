@@ -379,7 +379,7 @@ export default function MusicMaker() {
             name: 'Track 1',
             notes: [],
             instrument: 'piano',
-            effects: [],
+            effects: [], // Explicitly initialize as empty array
             volume: 0,
             muted: false,
             solo: false
@@ -860,10 +860,16 @@ export default function MusicMaker() {
                 if (!synthRefs.current[track.id]) {
                     const instrument = INSTRUMENTS[track.instrument];
                     if (instrument.isDrum) {
+                        // Initialize drum player with proper setup
                         const drumPlayer = instrument.synth();
-                        synthRefs.current[track.id] = drumPlayer;
-                        drumPlayer.connect(Tone.getDestination());
-                        console.log(`Drum player initialized for track ${track.id}`);
+                        if (typeof drumPlayer === 'function') {
+                            const player = drumPlayer();
+                            synthRefs.current[track.id] = player;
+                            player.connect(Tone.getDestination());
+                            console.log(`Drum player initialized for track ${track.id}`);
+                        } else {
+                            console.error(`Invalid drum player for instrument ${track.instrument}`);
+                        }
                     } else {
                         const synth = instrument.synth();
                         synthRefs.current[track.id] = synth;
@@ -897,14 +903,10 @@ export default function MusicMaker() {
                 throw new Error('Failed to initialize audio and transport');
             }
 
-            // Stop any existing playback and clean up
+            // Stop any existing playback
             Tone.Transport.stop();
             Tone.Transport.cancel();
-            Object.values(partRefs.current).forEach(parts => {
-                parts.forEach(part => part?.dispose?.());
-            });
-            partRefs.current = {};
-            
+
             // Set tempo and timing parameters
             Tone.Transport.bpm.value = tempo;
             Tone.Transport.swing = 0;
@@ -927,17 +929,72 @@ export default function MusicMaker() {
             Tone.Transport.loopStart = 0;
             Tone.Transport.loopEnd = loopEnd;
             Tone.Transport.seconds = 0;
+            
+            // Clean up existing parts
+            Object.values(partRefs.current).forEach(parts => {
+                parts.forEach(part => part?.dispose?.());
+            });
+            partRefs.current = {};
 
             // Create a master part to handle all tracks
             const masterPart = new Tone.Part((time, event) => {
-                const { trackId, note } = event;
+                const { trackId, note, effects } = event;
                 const synth = synthRefs.current[trackId];
                 if (!synth) return;
 
-                if (INSTRUMENTS[tracks.find(t => t.id === trackId)?.instrument]?.isDrum) {
-                    const drumType = INSTRUMENTS[tracks.find(t => t.id === trackId)?.instrument]?.drumMap[note.pitch];
+                const track = tracks.find(t => t.id === trackId);
+                if (!track) return;
+
+                // Ensure effects is always an array
+                const safeEffects = Array.isArray(effects) ? effects : [];
+
+                // Handle effects
+                if (safeEffects.length > 0) {
+                    safeEffects.forEach(effectName => {
+                        if (!effectName || typeof effectName !== 'string') return;
+                        
+                        const effect = EFFECTS[effectName];
+                        if (effect && !effectRefs.current[`${trackId}-${effectName}`]) {
+                            const effectInstance = effect.effect();
+                            effectRefs.current[`${trackId}-${effectName}`] = effectInstance;
+                            
+                            try {
+                                if (synth.output) {
+                                    synth.disconnect();
+                                    synth.chain(effectInstance, Tone.getDestination());
+                                }
+                            } catch (error) {
+                                console.error('Error connecting effect:', error);
+                            }
+                        }
+                    });
+                } else {
+                    try {
+                        if (synth.output && !synth.output.connection) {
+                            synth.connect(Tone.getDestination());
+                        }
+                    } catch (error) {
+                        console.error('Error connecting synth to destination:', error);
+                    }
+                }
+
+                if (INSTRUMENTS[track.instrument]?.isDrum) {
+                    const drumType = INSTRUMENTS[track.instrument]?.drumMap[note.pitch];
                     if (drumType) {
-                        synth.player(drumType).start(time);
+                        // Add a small random offset to prevent timing conflicts
+                        const randomOffset = Math.random() * 0.0001;
+                        const offsetTime = time + 0.001 + randomOffset;
+                        try {
+                            if (typeof synth.player === 'function') {
+                                synth.player(drumType).start(offsetTime);
+                            } else if (typeof synth.triggerAttackRelease === 'function') {
+                                synth.triggerAttackRelease(drumType, '8n', offsetTime);
+                            } else {
+                                console.error('Invalid drum synth - no player or triggerAttackRelease method');
+                            }
+                        } catch (error) {
+                            console.error('Error playing drum:', error);
+                        }
                     }
                 } else {
                     const noteLength = (60 / tempo) * 
@@ -947,7 +1004,14 @@ export default function MusicMaker() {
                          note.length === '8n' ? 0.5 :
                          note.length === '16n' ? 0.25 : 0.5);
                     
-                    synth.triggerAttackRelease(note.pitch, Math.max(0.1, noteLength), time);
+                    // Add a small random offset to prevent timing conflicts
+                    const randomOffset = Math.random() * 0.0001;
+                    const offsetTime = time + 0.001 + randomOffset;
+                    try {
+                        synth.triggerAttackRelease(note.pitch, Math.max(0.1, noteLength), offsetTime);
+                    } catch (error) {
+                        console.error('Error playing note:', error);
+                    }
                 }
             }, []);
 
@@ -960,15 +1024,35 @@ export default function MusicMaker() {
                     const instrument = INSTRUMENTS[track.instrument];
                     const synth = instrument.synth();
                     synthRefs.current[track.id] = synth;
-                    synth.connect(Tone.getDestination());
+                    
+                    // Ensure track.effects is initialized as an array
+                    if (!Array.isArray(track.effects)) {
+                        track.effects = [];
+                    }
+                    
+                    // Connect to destination if no effects
+                    if (track.effects.length === 0) {
+                        synth.connect(Tone.getDestination());
+                    }
                 }
 
-                // Add notes to the master part
-                track.notes.forEach(note => {
-                    const time = note.x * timePerStep;
-                    masterPart.add(time, { trackId: track.id, note });
+                // Add notes to the master part with unique start times
+                track.notes.forEach((note, index) => {
+                    // Add a small offset based on the note's index to ensure unique start times
+                    const timeOffset = index * 0.0001; // 0.1ms offset per note
+                    const time = note.x * timePerStep + timeOffset;
+                    masterPart.add(time, { 
+                        trackId: track.id, 
+                        note,
+                        effects: Array.isArray(track.effects) ? track.effects : [] // Ensure effects is an array when passing to callback
+                    });
                 });
             }
+
+            // Start the master part
+            masterPart.start(0);
+            masterPart.loop = isLooping;
+            masterPart.loopEnd = loopEnd;
 
             // Store the master part
             partRefs.current.master = [masterPart];
@@ -985,14 +1069,15 @@ export default function MusicMaker() {
                 console.log('Transport started');
             });
 
-            // Start the master part and transport
-            masterPart.start(0);
-            masterPart.loop = isLooping;
-            masterPart.loopEnd = loopEnd;
-
-            // Start playback
+            // Start playback with a small delay to ensure everything is ready
             setIsPlaying(true);
-            Tone.Transport.start('+0.1');
+            
+            // Use a small delay to ensure proper synchronization
+            await new Promise(resolve => setTimeout(resolve, 50));
+            await Tone.Transport.start('+0.1');
+
+            // Remove the redundant transport emit
+            // Tone.Transport.emit('start'); // This line was causing the infinite recursion
 
         } catch (error) {
             console.error('Playback error:', error);
@@ -1045,8 +1130,8 @@ export default function MusicMaker() {
                     // Force transport position to stay within loop boundaries
                     if (currentTime >= loopEnd) {
                         Tone.Transport.seconds = adjustedTime;
-                    }
-                } else {
+                            }
+                        } else {
                     // If not looping, stop at the last note
                     currentStep = Math.floor(currentTime / timePerStep);
                     currentCol = Math.min(currentStep, maxNotePosition);
@@ -1066,8 +1151,8 @@ export default function MusicMaker() {
                 // Schedule next update
                 if (isPlaying) {
                     animationFrameId = requestAnimationFrame(handleTransport);
-                }
-            } catch (error) {
+                        }
+                    } catch (error) {
                 console.error('Error in transport handler:', error);
                 if (isPlaying) {
                     stopPlayback();
@@ -1100,9 +1185,9 @@ export default function MusicMaker() {
                     if (part) {
                         part.loop = newLoopState;
                     }
+                    });
                 });
-            });
-            
+
             // If turning off loop, ensure transport continues past loop point
             if (!newLoopState) {
                 const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
@@ -1161,6 +1246,7 @@ export default function MusicMaker() {
             tempo,
             instrument: tracks[selectedTrack - 1].instrument,
             scale: selectedScale,
+            effects: Array.isArray(tracks[selectedTrack - 1].effects) ? tracks[selectedTrack - 1].effects : [], // Ensure effects is an array
             date: new Date().toISOString()
         };
         setSavedCompositions([...savedCompositions, composition]);
@@ -1169,7 +1255,11 @@ export default function MusicMaker() {
 
     const loadComposition = (composition) => {
         setTracks(tracks.map(track => 
-            track.id === selectedTrack ? { ...track, notes: composition.notes } : track
+            track.id === selectedTrack ? { 
+                ...track, 
+                notes: composition.notes,
+                effects: Array.isArray(composition.effects) ? composition.effects : [] // Ensure effects is an array
+            } : track
         ));
         setTempo(composition.tempo);
         setSelectedScale(composition.scale);
@@ -2130,7 +2220,7 @@ export default function MusicMaker() {
             name: `Track ${tracks.length + 1}`,
             notes: [],
             instrument: 'piano',
-            effects: [],
+            effects: [], // Ensure effects is initialized as an array
             volume: 0,
             muted: false,
             solo: false
@@ -2148,27 +2238,72 @@ export default function MusicMaker() {
     };
 
     const addEffect = (trackId, effectName) => {
+        if (!trackId || !effectName) return;
+
         setTracks(tracks.map(track => {
-            if (track.id === trackId && !track.effects.includes(effectName)) {
-                return {
-                    ...track,
-                    effects: [...track.effects, effectName]
-                };
+            if (track.id === trackId) {
+                // Ensure effects is an array
+                const currentEffects = Array.isArray(track.effects) ? track.effects : [];
+                if (!currentEffects.includes(effectName)) {
+                    return {
+                        ...track,
+                        effects: [...currentEffects, effectName]
+                    };
+                }
             }
             return track;
         }));
     };
 
     const removeEffect = (trackId, effectName) => {
-        setTracks(tracks.map(track => {
-            if (track.id === trackId) {
-                return {
-                    ...track,
-                    effects: track.effects.filter(effect => effect !== effectName)
-                };
+        try {
+            // First, clean up the effect instance
+            const effectKey = `${trackId}-${effectName}`;
+            const effect = effectRefs.current[effectKey];
+            if (effect) {
+                try {
+                    effect.dispose();
+                    delete effectRefs.current[effectKey];
+                } catch (error) {
+                    console.error(`Error disposing effect ${effectName}:`, error);
+                }
             }
-            return track;
-        }));
+
+            // Then update the track's effects array
+            setTracks(tracks.map(track => {
+                if (track.id === trackId) {
+                    // Ensure effects is an array before filtering
+                    const currentEffects = Array.isArray(track.effects) ? track.effects : [];
+                    return {
+                        ...track,
+                        effects: currentEffects.filter(effect => effect !== effectName)
+                    };
+                }
+                return track;
+            }));
+
+            // Reconnect the synth to destination if no effects left
+            const track = tracks.find(t => t.id === trackId);
+            if (track) {
+                const synth = synthRefs.current[trackId];
+                if (synth) {
+                    const remainingEffects = Array.isArray(track.effects) ? 
+                        track.effects.filter(effect => effect !== effectName) : 
+                        [];
+                    
+                    if (remainingEffects.length === 0) {
+                        try {
+                            synth.disconnect();
+                            synth.connect(Tone.getDestination());
+                        } catch (error) {
+                            console.error('Error reconnecting synth:', error);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error removing effect:', error);
+        }
     };
 
     // Update drum volumes with proper timing
@@ -2193,15 +2328,27 @@ export default function MusicMaker() {
         updateDrumVolumes();
     }, [drumVolumes, tracks]);
 
-    // Add a new function to handle play button click
+    // Add error boundary for audio initialization
+    const initializeAudio = useCallback(async () => {
+        try {
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
+            return true;
+        } catch (error) {
+            console.error('Error initializing audio:', error);
+            return false;
+        }
+    }, []);
+
+    // Update play button click handler to handle errors
     const handlePlayButtonClick = useCallback(async () => {
         try {
             console.log('Play button clicked');
             
-            // Ensure audio context is running
-            if (Tone.context.state !== 'running') {
-                await Tone.start();
-                console.log('Audio context started');
+            const audioInitialized = await initializeAudio();
+            if (!audioInitialized) {
+                throw new Error('Failed to initialize audio');
             }
 
             // Initialize audio and transport
@@ -2220,8 +2367,12 @@ export default function MusicMaker() {
 
         } catch (error) {
             console.error('Error starting playback:', error);
+            // Reset state on error
+            setIsPlaying(false);
+            Tone.Transport.stop();
+            Tone.Transport.cancel();
         }
-    }, [tempo, tracks, isLooping]);
+    }, [tempo, tracks, isLooping, initializeAudio, initializeAudioAndTransport, playSequence]);
 
     useEffect(() => {
         // Initialize AudioContext on component mount
@@ -2255,6 +2406,102 @@ export default function MusicMaker() {
         }
         setIsPlaying(true);
     };
+
+    // Add cleanup for effects when component unmounts or track changes
+    useEffect(() => {
+        return () => {
+            // Clean up effects
+            Object.values(effectRefs.current).forEach(effect => {
+                if (effect && typeof effect.dispose === 'function') {
+                    try {
+                        effect.dispose();
+                    } catch (error) {
+                        console.error('Error disposing effect:', error);
+                    }
+                }
+            });
+            effectRefs.current = {};
+
+            // Clean up synths
+            Object.values(synthRefs.current).forEach(synth => {
+                if (synth && typeof synth.dispose === 'function') {
+                    try {
+                        synth.dispose();
+                    } catch (error) {
+                        console.error('Error disposing synth:', error);
+                    }
+                }
+            });
+            synthRefs.current = {};
+
+            // Clean up parts
+            Object.values(partRefs.current).forEach(parts => {
+                parts.forEach(part => {
+                    if (part && typeof part.dispose === 'function') {
+                        try {
+                            part.dispose();
+                        } catch (error) {
+                            console.error('Error disposing part:', error);
+                        }
+                    }
+                });
+            });
+            partRefs.current = {};
+
+            // Stop transport and reset state
+            try {
+                Tone.Transport.stop();
+                Tone.Transport.cancel();
+            } catch (error) {
+                console.error('Error stopping transport:', error);
+            }
+        };
+    }, []);
+
+    // Update the track change effect to handle effects safely
+    useEffect(() => {
+        if (!tracks || !Array.isArray(tracks)) return;
+
+        tracks.forEach(track => {
+            if (!track || typeof track !== 'object') return;
+
+            const synth = synthRefs.current[track.id];
+            if (!synth) return;
+
+            // Ensure effects is always an array
+            const trackEffects = Array.isArray(track.effects) ? track.effects : [];
+            
+            // Clean up existing effects for this track
+            if (trackEffects && trackEffects.length > 0) {
+                trackEffects.forEach(effectName => {
+                    if (!effectName || typeof effectName !== 'string') return;
+                    
+                    const effectKey = `${track.id}-${effectName}`;
+                    const effect = effectRefs.current[effectKey];
+                    if (effect && typeof effect.dispose === 'function') {
+                        try {
+                            effect.dispose();
+                            delete effectRefs.current[effectKey];
+                        } catch (error) {
+                            console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
+                        }
+                    }
+                });
+            }
+
+            // Reconnect synth to destination if no effects
+            if (!trackEffects || trackEffects.length === 0) {
+                try {
+                    if (synth.output) {
+                        synth.disconnect();
+                        synth.connect(Tone.getDestination());
+                    }
+                } catch (error) {
+                    console.error(`Error connecting synth for track ${track.id}:`, error);
+                }
+            }
+        });
+    }, [tracks]);
 
     return (
         <div className="flex flex-col items-center space-y-4 p-4">

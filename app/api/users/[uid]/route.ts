@@ -152,7 +152,7 @@ export async function PUT(
         // Update the user profile
         const updateData = {
             ...body,
-            updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString()
         };
 
         try {
@@ -200,13 +200,23 @@ export async function DELETE(
             return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
         }
 
-        // Check if the requested user ID matches the authenticated user
-        if (decodedToken.uid !== uid) {
+        // Check if the user is an admin or the account owner
+        const isAdmin = decodedToken.uid === 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2';
+        const isAccountOwner = decodedToken.uid === uid;
+
+        if (!isAdmin && !isAccountOwner) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
         try {
+            // Delete the user's Firestore document
             await db.collection('users').doc(uid).delete();
+            
+            // If the user is an admin, also delete the user from Firebase Auth
+            if (isAdmin) {
+                await getAuth().deleteUser(uid);
+            }
+            
             return NextResponse.json({ message: 'Profile deleted successfully' });
         } catch (error) {
             console.error('Error deleting profile:', error);
