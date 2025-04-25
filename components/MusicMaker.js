@@ -2090,6 +2090,10 @@ export default function MusicMaker() {
 
         const startTime = Tone.now();
         const notes = [];
+        const gridSize = 20; // Size of each grid cell
+        const timePerStep = (60 / tempo) / STEPS_PER_BEAT; // Time per step in seconds
+        const currentScale = selectedScale; // Capture current scale
+        const currentTrackId = selectedTrack; // Capture current track ID
 
         const handleMidiMessage = (message) => {
             const [status, note, velocity] = message.data;
@@ -2121,10 +2125,49 @@ export default function MusicMaker() {
                 selectedMidiInput.onmidimessage = null;
             }
             if (notes.length > 0) {
-                setRecordedNotes(notes);
+                // Convert recorded notes to piano roll format
+                const pianoRollNotes = notes.map(note => {
+                    // Convert time to grid position
+                    const x = Math.floor(note.time / timePerStep);
+                    // Find the note's position in the scale
+                    const scaleNotes = SCALES[currentScale];
+                    const noteIndex = scaleNotes.findIndex(n => note.note.startsWith(n));
+                    const octave = parseInt(note.note.slice(-1));
+                    const y = (octave - 4) * scaleNotes.length + (scaleNotes.length - 1 - noteIndex);
+                    
+                    return {
+                        x,
+                        y,
+                        pitch: note.note,
+                        width: Math.max(1, Math.floor(note.duration / timePerStep)),
+                        color: '#3b82f6',
+                        id: Date.now() + Math.random()
+                    };
+                });
+
+                // Add notes to piano roll
+                setPianoRollNotes(prev => [...prev, ...pianoRollNotes]);
+
+                // Add notes to the current track
+                setTracks(prevTracks => prevTracks.map(track => {
+                    if (track.id === currentTrackId) {
+                        const newNotes = pianoRollNotes.map(note => ({
+                            x: note.x,
+                            y: note.y,
+                            pitch: note.pitch,
+                            time: note.x * 16,
+                            length: '8n'
+                        }));
+                        return {
+                            ...track,
+                            notes: [...track.notes, ...newNotes]
+                        };
+                    }
+                    return track;
+                }));
             }
         };
-    }, [isRecording, selectedMidiInput]);
+    }, [isRecording, selectedMidiInput]); // Only depend on these two values
 
     // Note Editing
     const handlePianoRollMouseUp = () => {
