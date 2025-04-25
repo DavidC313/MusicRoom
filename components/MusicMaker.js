@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as Tone from 'tone';
-import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste, FaSync } from 'react-icons/fa';
+import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste, FaSync, FaCheck, FaEraser } from 'react-icons/fa';
 
 const SCALES = {
     'C Major': ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
@@ -305,20 +305,13 @@ const INSTRUMENTS = {
             resonance: 0.7
         })
     },
-    noiseSynth: {
-        name: 'Noise Synth',
-        synth: () => new Tone.NoiseSynth({
-            noise: { type: "white" },
-            envelope: { attack: 0.005, decay: 0.1, sustain: 0.0, release: 0.1 }
-        })
-    },
     monoSynth: {
         name: 'Mono Synth',
         synth: () => new Tone.MonoSynth({
             oscillator: { type: "sawtooth" },
             filter: { Q: 6, type: "lowpass", rolloff: -24 },
             envelope: { attack: 0.005, decay: 0.1, sustain: 0.9, release: 1 },
-            filterEnvelope: { attack: 0.06, decay: 0.2, sustain: 0.5, release: 2 }
+            filterEnvelope: { attack: 0.6, decay: 0.2, sustain: 0.5, release: 0.8, baseFrequency: 200, octaves: 3 }
         })
     },
     polySynth: {
@@ -745,12 +738,16 @@ export default function MusicMaker() {
         const octave = Math.floor(gridY / scaleNotes.length) + 4;
         const pitch = `${scaleNotes[noteIndex]}${octave}`;
 
+        // Find the selected track
+        const selectedTrackData = tracks.find(t => t.id === selectedTrack);
+        if (!selectedTrackData) return;
+
         // Check if clicking on an existing note
-        const existingNote = tracks[selectedTrack - 1].notes.find(
+        const existingNote = selectedTrackData.notes.find(
             note => note.x === gridX && note.y === gridY
         );
 
-        // Normal click behavior
+        // Update the selected track's notes
         setTracks(tracks.map(track => {
             if (track.id === selectedTrack) {
                 if (existingNote) {
@@ -2277,17 +2274,20 @@ export default function MusicMaker() {
 
     // Add back the missing functions
     const addTrack = () => {
+        if (tracks.length >= 7) {
+            alert('Maximum of 7 tracks reached. Please remove a track before adding a new one.');
+            return;
+        }
         const newTrack = {
-            id: tracks.length + 1,
+            id: Date.now(),
             name: `Track ${tracks.length + 1}`,
+            instrument: 'pluckSynth',
             notes: [],
-            instrument: 'piano',
-            effects: [], // Ensure effects is initialized as an array
-            volume: 0,
-            muted: false,
-            solo: false
+            effects: [],
+            volume: 0
         };
         setTracks([...tracks, newTrack]);
+        setSelectedTrack(newTrack.id);
     };
 
     const removeTrack = (trackId) => {
@@ -2721,6 +2721,14 @@ export default function MusicMaker() {
         };
     }, [tracks]);
 
+    const clearTrack = (trackId) => {
+        setTracks(tracks.map(track => 
+            track.id === trackId 
+                ? { ...track, notes: [] }
+                : track
+        ));
+    };
+
     return (
         <div className="flex flex-col items-center space-y-4 p-4">
             <div className="flex flex-wrap gap-4 justify-center">
@@ -2864,6 +2872,9 @@ export default function MusicMaker() {
 
             {/* Track Controls */}
             <div className="w-full max-w-4xl space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-white">Tracks ({tracks.length}/7)</h2>
+                </div>
                 {tracks.map(track => (
                     <div key={track.id} className="border border-gray-700 rounded-lg p-4 bg-gray-800">
                         <div className="flex items-center justify-between mb-4">
@@ -2874,7 +2885,8 @@ export default function MusicMaker() {
                                     onChange={(e) => setTracks(tracks.map(t => 
                                         t.id === track.id ? { ...t, name: e.target.value } : t
                                     ))}
-                                    className="px-2 py-1 bg-gray-700 text-white border border-gray-600 rounded"
+                                    className="px-2 py-1 bg-gray-700 text-white border border-gray-600 rounded w-32"
+                                    placeholder="Track name"
                                 />
                                 <select
                                     value={track.instrument}
@@ -2887,44 +2899,30 @@ export default function MusicMaker() {
                                         <option key={key} value={key}>{name}</option>
                                     ))}
                                 </select>
+                            </div>
+                            <div className="flex items-center space-x-2">
                                 <button
                                     onClick={() => setSelectedTrack(track.id)}
-                                    className={`px-2 py-1 rounded ${
+                                    className={`px-3 py-1 rounded flex items-center gap-1 ${
                                         selectedTrack === track.id ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
                                     }`}
                                 >
-                                    Select
+                                    <FaCheck /> Select
+                                </button>
+                                <button
+                                    onClick={() => clearTrack(track.id)}
+                                    className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 flex items-center gap-1"
+                                >
+                                    <FaEraser /> Clear
                                 </button>
                                 {tracks.length > 1 && (
                                     <button
                                         onClick={() => removeTrack(track.id)}
-                                        className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 flex items-center gap-1"
                                     >
-                                        Remove
+                                        <FaTrash /> Remove
                                     </button>
                                 )}
-                            </div>
-                            <div className="flex items-center space-x-4">
-                                <button
-                                    onClick={() => setTracks(tracks.map(t => 
-                                        t.id === track.id ? { ...t, muted: !t.muted } : t
-                                    ))}
-                                    className={`px-2 py-1 rounded ${
-                                        track.muted ? 'bg-red-600 text-white' : 'bg-gray-700 text-white'
-                                    }`}
-                                >
-                                    Mute
-                                </button>
-                                <button
-                                    onClick={() => setTracks(tracks.map(t => 
-                                        t.id === track.id ? { ...t, solo: !t.solo } : t
-                                    ))}
-                                    className={`px-2 py-1 rounded ${
-                                        track.solo ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-white'
-                                    }`}
-                                >
-                                    Solo
-                                </button>
                             </div>
                         </div>
                         
@@ -2963,6 +2961,11 @@ export default function MusicMaker() {
                         )}
                     </div>
                 ))}
+                {tracks.length === 0 && (
+                    <div className="text-center py-8 text-gray-400">
+                        <p>No tracks yet. Click "Add Track" to get started!</p>
+                    </div>
+                )}
             </div>
 
             {/* Drum Volume Controls */}
