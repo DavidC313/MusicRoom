@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, db } from '@/utils/firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
 
+type RouteParams = {
+    params: {
+        uid: string;
+    };
+};
+
 export async function GET(
     request: NextRequest,
-    { params }: { params: { uid: string } }
+    context: RouteParams
 ) {
     try {
-        // Await the params to ensure they're available
-        const { uid } = await Promise.resolve(params);
+        const { uid } = context.params;
         console.log('Starting GET request for user:', uid);
         
         // Verify the user is authenticated
@@ -112,11 +117,10 @@ export async function GET(
 
 export async function PUT(
     request: NextRequest,
-    { params }: { params: { uid: string } }
+    context: RouteParams
 ) {
     try {
-        // Await the params to ensure they're available
-        const { uid } = await Promise.resolve(params);
+        const { uid } = context.params;
         
         // Verify the user is authenticated
         const authHeader = request.headers.get('Authorization');
@@ -176,11 +180,10 @@ export async function PUT(
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { uid: string } }
+    context: RouteParams
 ) {
     try {
-        // Await the params to ensure they're available
-        const { uid } = await Promise.resolve(params);
+        const { uid } = context.params;
         
         // Verify the user is authenticated
         const authHeader = request.headers.get('Authorization');
