@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth, db } from '@/utils/firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
 
 export async function GET(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { uid: string } }
 ) {
     try {
@@ -102,7 +102,7 @@ export async function GET(
             updatedAt: data.updatedAt || new Date().toISOString()
         });
     } catch (error) {
-        console.error('Unexpected error in GET handler:', error);
+        console.error('Error in GET handler:', error);
         return NextResponse.json({ 
             error: 'Internal server error',
             details: error instanceof Error ? error.message : 'Unknown error'
@@ -111,7 +111,7 @@ export async function GET(
 }
 
 export async function PUT(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { uid: string } }
 ) {
     try {
@@ -166,7 +166,7 @@ export async function PUT(
             }, { status: 500 });
         }
     } catch (error) {
-        console.error('Unexpected error in PUT handler:', error);
+        console.error('Error in PUT handler:', error);
         return NextResponse.json({ 
             error: 'Internal server error',
             details: error instanceof Error ? error.message : 'Unknown error'
@@ -175,7 +175,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-    request: Request,
+    request: NextRequest,
     { params }: { params: { uid: string } }
 ) {
     try {
@@ -226,7 +226,7 @@ export async function DELETE(
             }, { status: 500 });
         }
     } catch (error) {
-        console.error('Unexpected error in DELETE handler:', error);
+        console.error('Error in DELETE handler:', error);
         return NextResponse.json({ 
             error: 'Internal server error',
             details: error instanceof Error ? error.message : 'Unknown error'
