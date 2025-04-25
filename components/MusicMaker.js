@@ -645,6 +645,26 @@ export default function MusicMaker() {
                                 console.log(`Synth initialized and connected for track ${track.id}`);
                             }
                         }
+
+                        // Initialize effects for the track
+                        const trackEffects = Array.isArray(track.effects) ? track.effects : [];
+                        trackEffects.forEach(effectName => {
+                            if (!effectName || typeof effectName !== 'string') return;
+                            
+                            const effectKey = `${track.id}-${effectName}`;
+                            if (!effectRefs.current[effectKey]) {
+                                const effect = EFFECTS[effectName];
+                                if (effect) {
+                                    const effectInstance = effect.effect();
+                                    effectRefs.current[effectKey] = effectInstance;
+                                    const synth = synthRefs.current[track.id];
+                                    if (synth) {
+                                        synth.disconnect();
+                                        synth.chain(effectInstance, masterVolume);
+                                    }
+                                }
+                            }
+                        });
                     });
                 }
             } catch (error) {
@@ -679,38 +699,38 @@ export default function MusicMaker() {
                 synthRefs.current = {};
                 
                 // Clean up effects
-                Object.values(effectRefs.current).forEach(effects => {
-                    effects.forEach(effect => {
-                        try {
-                            if (effect && typeof effect.dispose === 'function') {
-                                effect.dispose();
-                            }
-                        } catch (error) {
-                            console.error('Error disposing effect:', error);
+                Object.entries(effectRefs.current).forEach(([key, effect]) => {
+                    try {
+                        if (Array.isArray(effect)) {
+                            effect.forEach(e => {
+                                if (e && typeof e.dispose === 'function') {
+                                    e.dispose();
+                                }
+                            });
+                        } else if (effect && typeof effect.dispose === 'function') {
+                            effect.dispose();
                         }
-                    });
+                    } catch (error) {
+                        console.error(`Error disposing effect ${key}:`, error);
+                    }
                 });
                 effectRefs.current = {};
                 
                 // Clean up parts
                 Object.values(partRefs.current).forEach(parts => {
-                    parts.forEach(part => {
-                        try {
-                            if (part && typeof part.dispose === 'function') {
-                                part.dispose();
+                    if (Array.isArray(parts)) {
+                        parts.forEach(part => {
+                            try {
+                                if (part && typeof part.dispose === 'function') {
+                                    part.dispose();
+                                }
+                            } catch (error) {
+                                console.error('Error disposing part:', error);
                             }
-                        } catch (error) {
-                            console.error('Error disposing part:', error);
-                        }
-                    });
+                        });
+                    }
                 });
                 partRefs.current = {};
-                
-                // Stop transport and reset state
-                Tone.Transport.stop();
-                Tone.Transport.cancel();
-                setIsPlaying(false);
-                setIsLooping(false);
             }
         };
     }, [tracks]);
@@ -2192,17 +2212,6 @@ export default function MusicMaker() {
                     const instrument = INSTRUMENTS[track.instrument];
                     if (instrument.isDrum) {
                         const drumPlayer = instrument.synth();
-                        // Initialize volume controls for drum synths
-                        if (drumPlayer.volumes) {
-                            Object.entries(drumPlayer.volumes).forEach(([name, volume]) => {
-                                if (volume && !volume.volume) {
-                                    const volumeNode = new Tone.Volume(0);
-                                    volume.connect(volumeNode);
-                                    volumeNode.toDestination();
-                                    volume.volume = volumeNode;
-                                }
-                            });
-                        }
                         synthRefs.current[selectedTrack] = drumPlayer;
                     } else {
                         const synth = instrument.synth();
@@ -2214,39 +2223,8 @@ export default function MusicMaker() {
                 // Update track volume based on mute/solo state
                 const synth = synthRefs.current[selectedTrack];
                 if (synth) {
-                    const instrument = INSTRUMENTS[track.instrument];
-                    const anySoloed = tracks.some(t => t.solo);
-                    const volumeValue = anySoloed 
-                        ? (track.solo ? 0 : -Infinity)
-                        : (track.muted ? -Infinity : 0);
-
-                    if (instrument.isDrum && synth.volumes) {
-                        // Handle drum synth volumes
-                        Object.entries(synth.volumes).forEach(([name, volume]) => {
-                            if (volume && volume.volume) {
-                                try {
-                                    if (typeof volume.volume.setValueAtTime === 'function') {
-                                        volume.volume.setValueAtTime(volumeValue, Tone.context.currentTime);
-                                    } else if (typeof volume.volume.value !== 'undefined') {
-                                        volume.volume.value = volumeValue;
-                        }
-                                } catch (error) {
-                                    console.error(`Error setting volume for drum ${name}:`, error);
-                                }
-                            }
-                        });
-                    } else if (synth.volume) {
-                        // Handle regular synth volume
-                        try {
-                            if (typeof synth.volume.setValueAtTime === 'function') {
-                                synth.volume.setValueAtTime(volumeValue, Tone.context.currentTime);
-                            } else if (typeof synth.volume.value !== 'undefined') {
-                                synth.volume.value = volumeValue;
-                            }
-                        } catch (error) {
-                            console.error(`Error setting volume for track ${track.id}:`, error);
-                        }
-                    }
+                    const volumeValue = track.muted ? -Infinity : track.volume;
+                    synth.volume.value = volumeValue;
                 }
             } catch (error) {
                 console.error('Error initializing track synth:', error);
@@ -2530,13 +2508,19 @@ export default function MusicMaker() {
     useEffect(() => {
         return () => {
             // Clean up effects
-            Object.values(effectRefs.current).forEach(effect => {
-                if (effect && typeof effect.dispose === 'function') {
-                    try {
+            Object.entries(effectRefs.current).forEach(([key, effect]) => {
+                try {
+                    if (Array.isArray(effect)) {
+                        effect.forEach(e => {
+                            if (e && typeof e.dispose === 'function') {
+                                e.dispose();
+                            }
+                        });
+                    } else if (effect && typeof effect.dispose === 'function') {
                         effect.dispose();
-                    } catch (error) {
-                        console.error('Error disposing effect:', error);
                     }
+                } catch (error) {
+                    console.error(`Error disposing effect ${key}:`, error);
                 }
             });
             effectRefs.current = {};
@@ -2555,15 +2539,17 @@ export default function MusicMaker() {
 
             // Clean up parts
             Object.values(partRefs.current).forEach(parts => {
-                parts.forEach(part => {
-                    if (part && typeof part.dispose === 'function') {
-                        try {
-                            part.dispose();
-                        } catch (error) {
-                            console.error('Error disposing part:', error);
+                if (Array.isArray(parts)) {
+                    parts.forEach(part => {
+                        if (part && typeof part.dispose === 'function') {
+                            try {
+                                part.dispose();
+                            } catch (error) {
+                                console.error('Error disposing part:', error);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             });
             partRefs.current = {};
 
@@ -2591,25 +2577,23 @@ export default function MusicMaker() {
             const trackEffects = Array.isArray(track.effects) ? track.effects : [];
             
             // Clean up existing effects for this track
-            if (trackEffects && trackEffects.length > 0) {
-                trackEffects.forEach(effectName => {
-                    if (!effectName || typeof effectName !== 'string') return;
-                    
-                    const effectKey = `${track.id}-${effectName}`;
-                    const effect = effectRefs.current[effectKey];
-                    if (effect && typeof effect.dispose === 'function') {
-                        try {
-                            effect.dispose();
-                            delete effectRefs.current[effectKey];
-                        } catch (error) {
-                            console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
-                        }
+            trackEffects.forEach(effectName => {
+                if (!effectName || typeof effectName !== 'string') return;
+                
+                const effectKey = `${track.id}-${effectName}`;
+                const effect = effectRefs.current[effectKey];
+                if (effect && typeof effect.dispose === 'function') {
+                    try {
+                        effect.dispose();
+                        delete effectRefs.current[effectKey];
+                    } catch (error) {
+                        console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
                     }
-                });
-            }
+                }
+            });
 
             // Reconnect synth to destination if no effects
-            if (!trackEffects || trackEffects.length === 0) {
+            if (trackEffects.length === 0) {
                 try {
                     if (synth.output) {
                         synth.disconnect();
@@ -2739,25 +2723,23 @@ export default function MusicMaker() {
             const trackEffects = Array.isArray(track.effects) ? track.effects : [];
             
             // Clean up existing effects for this track
-            if (trackEffects && trackEffects.length > 0) {
-                trackEffects.forEach(effectName => {
-                    if (!effectName || typeof effectName !== 'string') return;
-                    
-                    const effectKey = `${track.id}-${effectName}`;
-                    const effect = effectRefs.current[effectKey];
-                    if (effect && typeof effect.dispose === 'function') {
-                        try {
-                            effect.dispose();
-                            delete effectRefs.current[effectKey];
-                        } catch (error) {
-                            console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
-                        }
+            trackEffects.forEach(effectName => {
+                if (!effectName || typeof effectName !== 'string') return;
+                
+                const effectKey = `${track.id}-${effectName}`;
+                const effect = effectRefs.current[effectKey];
+                if (effect && typeof effect.dispose === 'function') {
+                    try {
+                        effect.dispose();
+                        delete effectRefs.current[effectKey];
+                    } catch (error) {
+                        console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
                     }
-                });
-            }
+                }
+            });
 
             // Reconnect synth to destination if no effects
-            if (!trackEffects || trackEffects.length === 0) {
+            if (trackEffects.length === 0) {
                 try {
                     if (synth.output) {
                         synth.disconnect();
