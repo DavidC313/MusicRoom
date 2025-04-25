@@ -938,7 +938,7 @@ export default function MusicMaker() {
 
             // Create a master part to handle all tracks
             const masterPart = new Tone.Part((time, event) => {
-                const { trackId, note, effects } = event;
+                const { trackId, note, effects, offset } = event;
                 const synth = synthRefs.current[trackId];
                 if (!synth) return;
 
@@ -978,19 +978,17 @@ export default function MusicMaker() {
                     }
                 }
 
+                // Calculate the actual start time with the offset
+                const startTime = time + offset;
+
                 if (INSTRUMENTS[track.instrument]?.isDrum) {
                     const drumType = INSTRUMENTS[track.instrument]?.drumMap[note.pitch];
                     if (drumType) {
-                        // Add a small random offset to prevent timing conflicts
-                        const randomOffset = Math.random() * 0.0001;
-                        const offsetTime = time + 0.001 + randomOffset;
                         try {
                             if (typeof synth.player === 'function') {
-                                synth.player(drumType).start(offsetTime);
+                                synth.player(drumType).start(startTime);
                             } else if (typeof synth.triggerAttackRelease === 'function') {
-                                synth.triggerAttackRelease(drumType, '8n', offsetTime);
-                            } else {
-                                console.error('Invalid drum synth - no player or triggerAttackRelease method');
+                                synth.triggerAttackRelease(drumType, '8n', startTime);
                             }
                         } catch (error) {
                             console.error('Error playing drum:', error);
@@ -1004,11 +1002,8 @@ export default function MusicMaker() {
                          note.length === '8n' ? 0.5 :
                          note.length === '16n' ? 0.25 : 0.5);
                     
-                    // Add a small random offset to prevent timing conflicts
-                    const randomOffset = Math.random() * 0.0001;
-                    const offsetTime = time + 0.001 + randomOffset;
                     try {
-                        synth.triggerAttackRelease(note.pitch, Math.max(0.1, noteLength), offsetTime);
+                        synth.triggerAttackRelease(note.pitch, Math.max(0.1, noteLength), startTime);
                     } catch (error) {
                         console.error('Error playing note:', error);
                     }
@@ -1036,15 +1031,29 @@ export default function MusicMaker() {
                     }
                 }
 
-                // Add notes to the master part with unique start times
-                track.notes.forEach((note, index) => {
-                    // Add a small offset based on the note's index to ensure unique start times
-                    const timeOffset = index * 0.0001; // 0.1ms offset per note
-                    const time = note.x * timePerStep + timeOffset;
-                    masterPart.add(time, { 
-                        trackId: track.id, 
-                        note,
-                        effects: Array.isArray(track.effects) ? track.effects : [] // Ensure effects is an array when passing to callback
+                // Group notes by their start time
+                const notesByTime = new Map();
+                track.notes.forEach(note => {
+                    const time = note.x * timePerStep;
+                    if (!notesByTime.has(time)) {
+                        notesByTime.set(time, []);
+                    }
+                    notesByTime.get(time).push(note);
+                });
+
+                // Sort times and schedule notes with small offsets
+                const sortedTimes = Array.from(notesByTime.keys()).sort((a, b) => a - b);
+                sortedTimes.forEach(time => {
+                    const notes = notesByTime.get(time);
+                    notes.forEach((note, index) => {
+                        // Add a small offset (1ms) for each note at the same time
+                        const offset = index * 0.001;
+                        masterPart.add(time, { 
+                            trackId: track.id, 
+                            note,
+                            effects: Array.isArray(track.effects) ? track.effects : [],
+                            offset
+                        });
                     });
                 });
             }
@@ -1057,27 +1066,10 @@ export default function MusicMaker() {
             // Store the master part
             partRefs.current.master = [masterPart];
 
-            // Add transport event handlers
-            Tone.Transport.on('stop', () => {
-                if (isPlaying) {
-                    console.log('Transport stopped unexpectedly, restarting...');
-                    Tone.Transport.start('+0.1');
-                }
-            });
-
-            Tone.Transport.on('start', () => {
-                console.log('Transport started');
-            });
-
             // Start playback with a small delay to ensure everything is ready
             setIsPlaying(true);
-            
-            // Use a small delay to ensure proper synchronization
             await new Promise(resolve => setTimeout(resolve, 50));
             await Tone.Transport.start('+0.1');
-
-            // Remove the redundant transport emit
-            // Tone.Transport.emit('start'); // This line was causing the infinite recursion
 
         } catch (error) {
             console.error('Playback error:', error);
@@ -1286,6 +1278,7 @@ export default function MusicMaker() {
         let originalContext = null;
         let masterVolume = null;
         let synths = {};
+        let effects = {};
 
         try {
             console.log('Starting export process...');
@@ -1298,27 +1291,27 @@ export default function MusicMaker() {
                 console.log('Audio context started');
             }
 
-            // Calculate duration
+            // Calculate duration with padding
             const maxNoteTime = Math.max(...tracks.flatMap(track => 
                 track.notes.map(note => note.x)
             ));
-            const timePerStep = (60 / tempo) / 4; // 16th notes per beat
-            const duration = (maxNoteTime * timePerStep) + 2;
-            console.log(`Export duration: ${duration} seconds`);
+            const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
+            const duration = (maxNoteTime * timePerStep) + 4; // Add 4 seconds padding
+            console.log(`Export duration: ${duration} seconds, Tempo: ${tempo} BPM`);
 
-            // Create offline context with the calculated duration
+            // Create offline context with higher sample rate
             console.log('Creating offline context...');
             offlineContext = new Tone.OfflineContext(2, duration, 44100);
             originalContext = Tone.context;
             Tone.setContext(offlineContext);
             console.log('Offline context created and set');
 
-            // Create a master volume
+            // Create a master volume with proper gain staging
             masterVolume = new Tone.Volume(-6).toDestination();
             console.log('Master volume created for export');
             
-            // Initialize all synths
-            console.log('Initializing synths for export...');
+            // Initialize all synths and effects
+            console.log('Initializing synths and effects for export...');
             tracks.forEach(track => {
                 if (track.muted) {
                     console.log(`Track ${track.id} is muted, skipping`);
@@ -1329,12 +1322,41 @@ export default function MusicMaker() {
                 if (instrument.isDrum) {
                     const drumPlayer = instrument.synth();
                     synths[track.id] = drumPlayer;
-                    drumPlayer.connect(masterVolume);
+                    
+                    // Initialize drum volumes
+                    if (drumPlayer.volumes) {
+                        Object.entries(drumPlayer.volumes).forEach(([name, volume]) => {
+                            if (volume && !volume.volume) {
+                                const volumeNode = new Tone.Volume(drumVolumes[name] || 0);
+                                volume.connect(volumeNode);
+                                volumeNode.connect(masterVolume);
+                                volume.volume = volumeNode;
+                            }
+                        });
+                    } else {
+                        drumPlayer.connect(masterVolume);
+                    }
                     console.log(`Drum player initialized for track ${track.id}`);
                 } else {
                     const synth = instrument.synth();
                     synths[track.id] = synth;
-                    synth.connect(masterVolume);
+                    
+                    // Initialize effects chain
+                    if (track.effects && track.effects.length > 0) {
+                        let lastNode = synth;
+                        track.effects.forEach(effectName => {
+                            const effect = EFFECTS[effectName];
+                            if (effect) {
+                                const effectInstance = effect.effect();
+                                effects[`${track.id}-${effectName}`] = effectInstance;
+                                lastNode.chain(effectInstance);
+                                lastNode = effectInstance;
+                            }
+                        });
+                        lastNode.connect(masterVolume);
+                    } else {
+                        synth.connect(masterVolume);
+                    }
                     console.log(`Synth initialized for track ${track.id}`);
                 }
             });
@@ -1361,20 +1383,26 @@ export default function MusicMaker() {
                         noteName,
                         synth,
                         instrument,
-                        length: note.length || noteLength
+                        length: note.length || noteLength,
+                        velocity: 0.8 // Fixed velocity for consistent playback
                     });
                     noteGroups.set(time, group);
                 });
             });
 
-            // Sort times and schedule notes
+            // Sort times and schedule notes with proper timing
             console.log('Scheduling notes for export...');
             const sortedTimes = Array.from(noteGroups.keys()).sort((a, b) => a - b);
-            sortedTimes.forEach(time => {
+            
+            // Schedule notes in chronological order
+            for (let i = 0; i < sortedTimes.length; i++) {
+                const time = sortedTimes[i];
                 const notes = noteGroups.get(time);
+                
                 // Add small offsets to notes that start at the same time
                 notes.forEach((note, index) => {
                     const offsetTime = time + (index * 0.0001); // Small offset to prevent timing conflicts
+                    
                     if (note.instrument.isDrum) {
                         const drumType = note.instrument.drumMap[note.noteName];
                         if (drumType && typeof note.synth.player === 'function') {
@@ -1382,6 +1410,7 @@ export default function MusicMaker() {
                             console.log(`Scheduled drum ${drumType} at time ${offsetTime}`);
                         }
                     } else if (typeof note.synth.triggerAttackRelease === 'function') {
+                        // Calculate note length in seconds based on tempo
                         const noteLengthInSeconds = (60 / tempo) * 
                             (note.length === '1n' ? 4 : 
                              note.length === '2n' ? 2 :
@@ -1389,13 +1418,26 @@ export default function MusicMaker() {
                              note.length === '8n' ? 0.5 :
                              note.length === '16n' ? 0.25 : 0.5);
                         
-                        note.synth.triggerAttackRelease(note.noteName, noteLengthInSeconds, offsetTime);
-                        console.log(`Scheduled note ${note.noteName} at time ${offsetTime} for ${noteLengthInSeconds} seconds`);
+                        // Ensure minimum note length
+                        const minNoteLength = 0.1; // 100ms minimum
+                        const finalNoteLength = Math.max(minNoteLength, noteLengthInSeconds);
+                        
+                        try {
+                            note.synth.triggerAttackRelease(
+                                note.noteName, 
+                                finalNoteLength, 
+                                offsetTime,
+                                note.velocity
+                            );
+                            console.log(`Scheduled note ${note.noteName} at time ${offsetTime} for ${finalNoteLength} seconds`);
+                        } catch (error) {
+                            console.error(`Error scheduling note at time ${offsetTime}:`, error);
+                        }
                     }
                 });
-            });
+            }
 
-            // Render the audio
+            // Render the audio with proper timing
             console.log('Rendering audio...');
             const buffer = await offlineContext.render();
             console.log('Audio rendered successfully');
@@ -1439,9 +1481,10 @@ export default function MusicMaker() {
             const url = URL.createObjectURL(blob);
             console.log('Blob created and URL generated');
             
-            // Create download link
+            // Create download link with timestamp
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const anchor = document.createElement('a');
-            anchor.download = `composition-${new Date().toISOString()}.wav`;
+            anchor.download = `composition-${timestamp}.wav`;
             anchor.href = url;
             anchor.click();
             console.log('Download initiated');
@@ -1458,11 +1501,16 @@ export default function MusicMaker() {
                     synth.dispose();
                 }
             });
+            Object.values(effects).forEach(effect => {
+                if (effect && typeof effect.dispose === 'function') {
+                    effect.dispose();
+                }
+            });
             if (offlineContext) {
                 offlineContext.dispose();
             }
             if (originalContext) {
-            Tone.setContext(originalContext);
+                Tone.setContext(originalContext);
             }
             setIsExporting(false);
             console.log('Export process completed, resources cleaned up');
@@ -1500,86 +1548,88 @@ export default function MusicMaker() {
         
         const initVisualizer = async () => {
             try {
-        // Create analyser node
+                // Create analyser node
                 analyser = new Tone.Analyser({
-            type: "waveform",
-            size: 2048,
-            smoothing: 0.8
-        });
-        
-        // Connect master output to analyser
-        Tone.getDestination().connect(analyser);
-        console.log('Analyser connected to master output');
+                    type: "waveform",
+                    size: 2048,
+                    smoothing: 0.8
+                });
+                
+                // Connect master output to analyser
+                Tone.getDestination().connect(analyser);
+                console.log('Analyser connected to master output');
 
-        // Create gradient for the visualizer
-        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, '#3b82f6');
-        gradient.addColorStop(0.5, '#8b5cf6');
-        gradient.addColorStop(1, '#ec4899');
+                // Create gradient for the visualizer
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, '#3b82f6');
+                gradient.addColorStop(0.5, '#8b5cf6');
+                gradient.addColorStop(1, '#ec4899');
 
-        const draw = () => {
-            if (!showVisualizer) return;
+                const draw = () => {
+                    if (!showVisualizer) return;
 
-            try {
-                // Get the waveform data
-                const waveform = analyser.getValue();
-                console.log('Waveform data:', waveform);
+                    try {
+                        // Get the waveform data
+                        const waveform = analyser.getValue();
 
-                const width = canvas.width;
-                const height = canvas.height;
+                        const width = canvas.width;
+                        const height = canvas.height;
 
-                // Clear canvas with a fade effect
-                ctx.fillStyle = 'rgba(17, 24, 39, 0.3)'; // Increased alpha for longer trails
-                ctx.fillRect(0, 0, width, height);
+                        // Clear canvas with a fade effect
+                        ctx.fillStyle = 'rgba(17, 24, 39, 0.3)';
+                        ctx.fillRect(0, 0, width, height);
 
-                // Draw the waveform
-                ctx.beginPath();
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = gradient;
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = '#3b82f6';
+                        // Draw the waveform
+                        ctx.beginPath();
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = gradient;
+                        ctx.shadowBlur = 10;
+                        ctx.shadowColor = '#3b82f6';
 
-                const sliceWidth = width / waveform.length;
-                let x = 0;
+                        const sliceWidth = width / waveform.length;
+                        let x = 0;
 
-                // Draw the main waveform with smoothing
-                for (let i = 0; i < waveform.length; i++) {
-                    const v = waveform[i];
-                    const y = (v + 1) / 2 * height;
+                        // Draw the main waveform with smoothing
+                        for (let i = 0; i < waveform.length; i++) {
+                            const v = waveform[i];
+                            const y = (v + 1) / 2 * height;
 
-                    if (i === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        // Use quadratic curves for smoother lines
-                        const prevX = x - sliceWidth;
-                        const prevY = (waveform[i - 1] + 1) / 2 * height;
-                        const cpX = (x + prevX) / 2;
-                        ctx.quadraticCurveTo(cpX, prevY, x, y);
+                            if (i === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                const prevX = x - sliceWidth;
+                                const prevY = (waveform[i - 1] + 1) / 2 * height;
+                                const cpX = (x + prevX) / 2;
+                                ctx.quadraticCurveTo(cpX, prevY, x, y);
+                            }
+
+                            x += sliceWidth;
+                        }
+
+                        ctx.stroke();
+
+                        // Mirror effect
+                        ctx.save();
+                        ctx.scale(1, -1);
+                        ctx.translate(0, -height);
+                        ctx.globalAlpha = 0.3;
+                        ctx.stroke();
+                        ctx.restore();
+
+                        // Request next frame
+                        animationFrameId = requestAnimationFrame(draw);
+                    } catch (error) {
+                        console.error('Error in visualizer draw function:', error);
+                        // Stop the animation if there's an error
+                        if (animationFrameId) {
+                            cancelAnimationFrame(animationFrameId);
+                        }
                     }
+                };
 
-                    x += sliceWidth;
-                }
-
-                ctx.stroke();
-
-                // Mirror effect
-                ctx.save();
-                ctx.scale(1, -1);
-                ctx.translate(0, -height);
-                ctx.globalAlpha = 0.3;
-                ctx.stroke();
-                ctx.restore();
-
-                // Request next frame
-                animationFrameId = requestAnimationFrame(draw);
-            } catch (error) {
-                console.error('Error in visualizer draw function:', error);
-            }
-        };
-
-        // Start drawing
-        console.log('Starting visualizer drawing');
-        draw();
+                // Start drawing
+                console.log('Starting visualizer drawing');
+                draw();
 
             } catch (error) {
                 console.error('Error initializing visualizer:', error);
@@ -1589,27 +1639,31 @@ export default function MusicMaker() {
         initVisualizer();
 
         return () => {
-            // Clean up animation frame
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-            }
-            
-            // Clean up audio nodes
-            if (analyser) {
-                try {
-            Tone.getDestination().disconnect(analyser);
-            analyser.dispose();
-                } catch (error) {
-                    console.error('Error cleaning up analyser:', error);
+            try {
+                // Clean up animation frame
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
                 }
+                
+                // Clean up audio nodes
+                if (analyser) {
+                    try {
+                        Tone.getDestination().disconnect(analyser);
+                        analyser.dispose();
+                    } catch (error) {
+                        console.error('Error cleaning up analyser:', error);
+                    }
+                }
+                
+                // Clear canvas
+                if (ctx) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+                
+                console.log('Visualizer cleaned up');
+            } catch (error) {
+                console.error('Error in visualizer cleanup:', error);
             }
-            
-            // Clear canvas
-            if (ctx) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-            
-            console.log('Visualizer cleaned up');
         };
     }, [showVisualizer]);
 
@@ -1626,29 +1680,48 @@ export default function MusicMaker() {
                     setMidiInputs(midiInputs);
 
                     midiAccess.onstatechange = (e) => {
-                        if (e.port.type === 'input') {
-                            const updatedInputs = Array.from(midiAccess.inputs.values());
-                            setMidiInputs(updatedInputs);
+                        try {
+                            if (e.port.type === 'input') {
+                                const updatedInputs = Array.from(midiAccess.inputs.values());
+                                setMidiInputs(updatedInputs);
+                                
+                                // Handle device disconnection
+                                if (e.port.state === 'disconnected' && selectedMidiInput?.id === e.port.id) {
+                                    setSelectedMidiInput(null);
+                                    console.warn('MIDI device disconnected:', e.port.name);
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Error handling MIDI state change:', error);
                         }
                     };
                 }
             } catch (error) {
                 console.error('Error setting up MIDI:', error);
+                setMidiEnabled(false);
             }
         };
 
         setupMidi();
 
         return () => {
-            // Clean up MIDI resources
-            if (midiAccess) {
-                midiAccess.onstatechange = null;
-                // Close all MIDI ports
-                midiInputs.forEach(input => {
-                    if (input && typeof input.close === 'function') {
-                        input.close();
-                    }
-                });
+            try {
+                // Clean up MIDI resources
+                if (midiAccess) {
+                    midiAccess.onstatechange = null;
+                    // Close all MIDI ports
+                    midiInputs.forEach(input => {
+                        try {
+                            if (input && typeof input.close === 'function') {
+                                input.close();
+                            }
+                        } catch (error) {
+                            console.error('Error closing MIDI input:', error);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error in MIDI cleanup:', error);
             }
         };
     }, []);
@@ -1659,34 +1732,46 @@ export default function MusicMaker() {
 
         const handleMidiMessage = (message) => {
             try {
-            const [status, note, velocity] = message.data;
-            const command = status >> 4;
-            const channel = status & 0xf;
+                const [status, note, velocity] = message.data;
+                const command = status >> 4;
+                const channel = status & 0xf;
 
-            if (command === 9 && velocity > 0) { // Note on
-                const synth = synthRefs.current[selectedTrack];
-                if (synth) {
-                    const noteName = Tone.Frequency(note, "midi").toNote();
-                    if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
-                        const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
-                        if (drumType && typeof synth.player === 'function') {
-                            synth.player(drumType).start();
+                if (command === 9 && velocity > 0) { // Note on
+                    const synth = synthRefs.current[selectedTrack];
+                    if (synth) {
+                        try {
+                            const noteName = Tone.Frequency(note, "midi").toNote();
+                            if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
+                                const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
+                                if (drumType && typeof synth.player === 'function') {
+                                    synth.player(drumType).start();
+                                }
+                            } else if (typeof synth.triggerAttackRelease === 'function') {
+                                synth.triggerAttackRelease(noteName, '8n');
+                            }
+                        } catch (error) {
+                            console.error('Error processing MIDI note:', error);
                         }
-                    } else if (typeof synth.triggerAttackRelease === 'function') {
-                        synth.triggerAttackRelease(noteName, '8n');
                     }
-                }
                 }
             } catch (error) {
                 console.error('Error handling MIDI message:', error);
             }
         };
 
-        selectedMidiInput.onmidimessage = handleMidiMessage;
+        try {
+            selectedMidiInput.onmidimessage = handleMidiMessage;
+        } catch (error) {
+            console.error('Error setting up MIDI message handler:', error);
+        }
 
         return () => {
-            if (selectedMidiInput) {
-            selectedMidiInput.onmidimessage = null;
+            try {
+                if (selectedMidiInput) {
+                    selectedMidiInput.onmidimessage = null;
+                }
+            } catch (error) {
+                console.error('Error cleaning up MIDI message handler:', error);
             }
         };
     }, [selectedMidiInput, midiEnabled, selectedTrack, tracks]);
@@ -1700,73 +1785,76 @@ export default function MusicMaker() {
         const width = canvas.width;
         const height = canvas.height;
         const gridSize = 20;
-        const rows = Math.floor(height / gridSize);
-        const cols = Math.floor(width / gridSize);
         const labelWidth = 40;
+        const playableWidth = width - labelWidth;
+        const rows = Math.floor(height / gridSize);
+        const cols = Math.floor(playableWidth / gridSize);
 
-        const drawPianoRoll = () => {
-            // Clear canvas
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, width, height);
+        // Clear canvas
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, width, height);
 
-            // Draw scale notes with alternating colors and labels
-            const scaleNotes = SCALES[selectedScale];
-            const octaves = Math.ceil(rows / scaleNotes.length);
-            
-            for (let octave = 0; octave < octaves; octave++) {
-                scaleNotes.forEach((note, index) => {
-                    const y = rows - (octave * scaleNotes.length + index) - 1;
-                    if (y < 0) return;
-                    
-                    // Draw alternating background colors
-                    ctx.fillStyle = (octave * scaleNotes.length + index) % 2 === 0 ? '#2a2a2a' : '#1f1f1f';
-                    ctx.fillRect(0, y * gridSize, width, gridSize);
-                    
-                    // Draw note label with octave number
-                    ctx.fillStyle = '#ffffff';
-                    ctx.font = '12px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(`${note}${octave + 4}`, labelWidth / 2, y * gridSize + gridSize / 2);
-                });
-            }
-
-            // Draw grid
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-
-            // Draw horizontal lines
-            for (let i = 0; i <= rows; i++) {
-                ctx.beginPath();
-                ctx.moveTo(labelWidth, i * gridSize);
-                ctx.lineTo(width, i * gridSize);
-                ctx.stroke();
-            }
-
-            // Draw vertical lines
-            for (let i = 0; i <= cols; i++) {
-                ctx.beginPath();
-                ctx.moveTo(i * gridSize + labelWidth, 0);
-                ctx.lineTo(i * gridSize + labelWidth, height);
-                ctx.stroke();
-            }
-
-            // Draw notes
-            pianoRollNotes.forEach(note => {
-                ctx.fillStyle = note.color || '#3b82f6';
-                ctx.fillRect(
-                    note.x * gridSize + labelWidth,
-                    note.y * gridSize,
-                    note.width * gridSize,
-                    gridSize
-                );
+        // Draw scale notes with alternating colors and labels
+        const scaleNotes = SCALES[selectedScale];
+        const octaves = Math.ceil(rows / scaleNotes.length);
+        
+        // Draw background and labels
+        for (let octave = 0; octave < octaves; octave++) {
+            scaleNotes.forEach((note, index) => {
+                const y = rows - (octave * scaleNotes.length + index) - 1;
+                if (y < 0) return;
+                
+                // Draw alternating background colors
+                ctx.fillStyle = (octave * scaleNotes.length + index) % 2 === 0 ? '#2a2a2a' : '#1f1f1f';
+                ctx.fillRect(0, y * gridSize, width, gridSize);
+                
+                // Draw note label with octave number
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${note}${octave + 4}`, labelWidth / 2, y * gridSize + gridSize / 2);
             });
-        };
+        }
 
-        drawPianoRoll();
+        // Draw grid lines
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+
+        // Draw horizontal lines
+        for (let i = 0; i <= rows; i++) {
+            ctx.beginPath();
+            ctx.moveTo(labelWidth, i * gridSize);
+            ctx.lineTo(width, i * gridSize);
+            ctx.stroke();
+        }
+
+        // Draw vertical lines
+        for (let i = 0; i <= cols; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * gridSize + labelWidth, 0);
+            ctx.lineTo(i * gridSize + labelWidth, height);
+            ctx.stroke();
+        }
+
+        // Draw notes
+        pianoRollNotes.forEach(note => {
+            // Calculate note position and size
+            const noteX = note.x * gridSize + labelWidth;
+            const noteY = note.y * gridSize;
+            let noteWidth = note.width * gridSize;
+            
+            // Ensure note stays within bounds
+            if (noteX + noteWidth > width) {
+                noteWidth = width - noteX;
+            }
+            
+            ctx.fillStyle = note.color || '#3b82f6';
+            ctx.fillRect(noteX, noteY, noteWidth, gridSize);
+        });
     }, [showPianoRoll, pianoRollNotes, selectedScale]);
 
-    const handlePianoRollClick = (e) => {
+    const handlePianoRollMouseDown = (e) => {
         if (!showPianoRoll || !pianoRollRef.current) return;
 
         const canvas = pianoRollRef.current;
@@ -1775,40 +1863,146 @@ export default function MusicMaker() {
         const y = e.clientY - rect.top;
         const gridSize = 20;
         const labelWidth = 40;
+        const playableWidth = canvas.width - labelWidth;
 
         // Adjust x coordinate to account for label width
         const adjustedX = x - labelWidth;
-        if (adjustedX < 0) return; // Don't allow clicks in the label area
+        if (adjustedX < 0 || adjustedX > playableWidth) return;
 
+        // Calculate grid position
         const gridX = Math.floor(adjustedX / gridSize);
         const gridY = Math.floor(y / gridSize);
 
-        const scaleNotes = SCALES[selectedScale];
-        const noteIndex = scaleNotes.length - 1 - (gridY % scaleNotes.length);
-        const octave = Math.floor(gridY / scaleNotes.length) + 4;
-        const pitch = `${scaleNotes[noteIndex]}${octave}`;
+        // Find clicked note
+        const clickedNote = pianoRollNotes.find(note => {
+            const noteStartX = note.x * gridSize;
+            const noteEndX = noteStartX + (note.width * gridSize);
+            return adjustedX >= noteStartX && 
+                   adjustedX <= noteEndX && 
+                   gridY === note.y;
+        });
 
-        setPianoRollNotes(prev => [
-            ...prev,
-            {
+        if (clickedNote) {
+            // Check if clicking on the right edge for resizing
+            const noteRightEdge = (clickedNote.x + clickedNote.width) * gridSize;
+            if (Math.abs(adjustedX - noteRightEdge) < 10) {
+                setIsResizing(true);
+                setResizeStart({ x: gridX, note: clickedNote });
+            } else {
+                setIsDragging(true);
+                setDragStart({ x: gridX, y: gridY, note: clickedNote });
+                if (!e.ctrlKey) {
+                    setSelectedNotes([clickedNote]);
+                } else {
+                    setSelectedNotes(prev => [...prev, clickedNote]);
+                }
+            }
+        } else {
+            // Add new note
+            const scaleNotes = SCALES[selectedScale];
+            const noteIndex = scaleNotes.length - 1 - (gridY % scaleNotes.length);
+            const octave = Math.floor(gridY / scaleNotes.length) + 4;
+            const pitch = `${scaleNotes[noteIndex]}${octave}`;
+
+            const newNote = {
                 x: gridX,
                 y: gridY,
                 pitch,
                 width: 1,
-                color: '#3b82f6'
-            }
-        ]);
+                color: '#3b82f6',
+                id: Date.now() + Math.random()
+            };
 
-        // Play the note
+            setPianoRollNotes(prev => [...prev, newNote]);
+            setSelectedNotes([newNote]);
+
+            // Play the note
+            playNote(pitch);
+        }
+    };
+
+    const handlePianoRollMouseMove = (e) => {
+        if (!showPianoRoll || !pianoRollRef.current) return;
+
+        const canvas = pianoRollRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const gridSize = 20;
+        const labelWidth = 40;
+        const playableWidth = canvas.width - labelWidth;
+
+        // Adjust x coordinate to account for label width
+        const adjustedX = x - labelWidth;
+        if (adjustedX < 0 || adjustedX > playableWidth) return;
+
+        // Calculate grid position
+        const gridX = Math.floor(adjustedX / gridSize);
+        const gridY = Math.floor(y / gridSize);
+
+        if (isDragging && dragStart) {
+            // Calculate maximum allowed position
+            const maxX = Math.floor(playableWidth / gridSize) - 1;
+            const deltaX = Math.min(maxX - dragStart.note.x, Math.max(0, gridX - dragStart.x));
+            const deltaY = gridY - dragStart.y;
+
+            setPianoRollNotes(prev => 
+                prev.map(note => 
+                    selectedNotes.includes(note)
+                        ? { ...note, x: note.x + deltaX, y: note.y + deltaY }
+                        : note
+                )
+            );
+
+            setDragStart({ x: gridX, y: gridY, note: dragStart.note });
+        } else if (isResizing && resizeStart) {
+            // Calculate maximum allowed width
+            const maxWidth = Math.floor(playableWidth / gridSize) - resizeStart.note.x;
+            const deltaX = Math.min(maxWidth - resizeStart.note.width, Math.max(1, gridX - resizeStart.x));
+            const newWidth = Math.max(1, resizeStart.note.width + deltaX);
+
+            setPianoRollNotes(prev => 
+                prev.map(note => 
+                    note === resizeStart.note
+                        ? { ...note, width: newWidth }
+                        : note
+                )
+            );
+
+            setResizeStart({ x: gridX, note: resizeStart.note });
+        }
+    };
+
+    // Helper function to play a note
+    const playNote = (pitch) => {
+        const track = tracks.find(t => t.id === selectedTrack);
+        if (!track) return;
+
+        // Initialize synth if needed
+        if (!synthRefs.current[selectedTrack]) {
+            const instrument = INSTRUMENTS[track.instrument];
+            if (instrument.isDrum) {
+                synthRefs.current[selectedTrack] = instrument.synth();
+            } else {
+                const synth = instrument.synth();
+                synthRefs.current[selectedTrack] = synth;
+                synth.toDestination();
+            }
+        }
+
         const synth = synthRefs.current[selectedTrack];
         if (synth) {
-            if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
-                const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[pitch];
-                if (drumType && typeof synth.player === 'function') {
-                    synth.player(drumType).start();
+            try {
+                if (INSTRUMENTS[track.instrument].isDrum) {
+                    const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
+                    if (drumType && typeof synth.player === 'function') {
+                        synth.player(drumType).start(Tone.now());
+                    }
+                } else if (typeof synth.triggerAttackRelease === 'function') {
+                    synth.triggerAttackRelease(pitch, '8n', Tone.now());
                 }
-            } else if (typeof synth.triggerAttackRelease === 'function') {
-                synth.triggerAttackRelease(pitch, '8n');
+            } catch (error) {
+                console.error('Error playing note:', error);
             }
         }
     };
@@ -1922,138 +2116,6 @@ export default function MusicMaker() {
     }, [isRecording, selectedMidiInput]);
 
     // Note Editing
-    const handlePianoRollMouseDown = (e) => {
-        if (!showPianoRoll || !pianoRollRef.current) return;
-
-        const canvas = pianoRollRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const gridSize = 20;
-        const labelWidth = 40;
-
-        // Adjust x coordinate to account for label width
-        const adjustedX = x - labelWidth;
-        if (adjustedX < 0) return; // Don't allow clicks in the label area
-
-        const gridX = Math.floor(adjustedX / gridSize);
-        const gridY = Math.floor(y / gridSize);
-
-        // Check if clicking on a note
-        const clickedNote = pianoRollNotes.find(note => 
-            gridX >= note.x && 
-            gridX <= note.x + note.width && 
-            gridY === note.y
-        );
-
-        if (clickedNote) {
-            // Check if clicking on the right edge for resizing
-            if (Math.abs(adjustedX - (clickedNote.x + clickedNote.width) * gridSize) < 10) {
-                setIsResizing(true);
-                setResizeStart({ x: gridX, note: clickedNote });
-            } else {
-                setIsDragging(true);
-                setDragStart({ x: gridX, y: gridY, note: clickedNote });
-                if (!e.ctrlKey) {
-                    setSelectedNotes([clickedNote]);
-                } else {
-                    setSelectedNotes(prev => [...prev, clickedNote]);
-                }
-            }
-        } else {
-            // Add new note
-            const scaleNotes = SCALES[selectedScale];
-            const noteIndex = scaleNotes.length - 1 - (gridY % scaleNotes.length);
-            const octave = Math.floor(gridY / scaleNotes.length) + 4;
-            const pitch = `${scaleNotes[noteIndex]}${octave}`;
-
-            const newNote = {
-                x: gridX,
-                y: gridY,
-                pitch,
-                width: 1,
-                color: '#3b82f6',
-                id: Date.now() + Math.random()
-            };
-
-            setPianoRollNotes(prev => [...prev, newNote]);
-            setSelectedNotes([newNote]);
-
-            // Play the note immediately
-            const track = tracks.find(t => t.id === selectedTrack);
-            if (!track) return;
-
-            // Initialize synth if needed
-            if (!synthRefs.current[selectedTrack]) {
-                const instrument = INSTRUMENTS[track.instrument];
-                if (instrument.isDrum) {
-                    synthRefs.current[selectedTrack] = instrument.synth();
-                } else {
-                    const synth = instrument.synth();
-                    synthRefs.current[selectedTrack] = synth;
-                    synth.toDestination();
-                }
-            }
-
-            const synth = synthRefs.current[selectedTrack];
-            if (synth) {
-                try {
-                    if (INSTRUMENTS[track.instrument].isDrum) {
-                        const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
-                        if (drumType && typeof synth.player === 'function') {
-                            synth.player(drumType).start(Tone.now());
-                        }
-                    } else if (typeof synth.triggerAttackRelease === 'function') {
-                        synth.triggerAttackRelease(pitch, '8n', Tone.now());
-                    }
-                } catch (error) {
-                    console.error('Error playing note:', error);
-                }
-            }
-        }
-    };
-
-    const handlePianoRollMouseMove = (e) => {
-        if (!showPianoRoll || !pianoRollRef.current) return;
-
-        const canvas = pianoRollRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const gridSize = 20;
-
-        const gridX = Math.floor(x / gridSize);
-        const gridY = Math.floor(y / gridSize);
-
-        if (isDragging && dragStart) {
-            const deltaX = gridX - dragStart.x;
-            const deltaY = gridY - dragStart.y;
-
-            setPianoRollNotes(prev => 
-                prev.map(note => 
-                    selectedNotes.includes(note)
-                        ? { ...note, x: note.x + deltaX, y: note.y + deltaY }
-                        : note
-                )
-            );
-
-            setDragStart({ x: gridX, y: gridY, note: dragStart.note });
-        } else if (isResizing && resizeStart) {
-            const deltaX = gridX - resizeStart.x;
-            const newWidth = Math.max(1, resizeStart.note.width + deltaX);
-
-            setPianoRollNotes(prev => 
-                prev.map(note => 
-                    note === resizeStart.note
-                        ? { ...note, width: newWidth }
-                        : note
-                )
-            );
-
-            setResizeStart({ x: gridX, note: resizeStart.note });
-        }
-    };
-
     const handlePianoRollMouseUp = () => {
         setIsDragging(false);
         setIsResizing(false);
@@ -2501,6 +2563,162 @@ export default function MusicMaker() {
                 }
             }
         });
+    }, [tracks]);
+
+    const cleanupAudioResources = () => {
+        try {
+            // Clean up effects
+            Object.entries(effectRefs.current).forEach(([key, effect]) => {
+                try {
+                    if (effect && typeof effect.dispose === 'function') {
+                        effect.dispose();
+                    }
+                } catch (error) {
+                    console.error(`Error disposing effect ${key}:`, error);
+                }
+            });
+            effectRefs.current = {};
+
+            // Clean up synths
+            Object.entries(synthRefs.current).forEach(([key, synth]) => {
+                try {
+                    if (synth && typeof synth.dispose === 'function') {
+                        synth.dispose();
+                    }
+                } catch (error) {
+                    console.error(`Error disposing synth ${key}:`, error);
+                }
+            });
+            synthRefs.current = {};
+
+            // Clean up parts
+            Object.entries(partRefs.current).forEach(([key, parts]) => {
+                parts.forEach(part => {
+                    try {
+                        if (part && typeof part.dispose === 'function') {
+                            part.dispose();
+                        }
+                    } catch (error) {
+                        console.error(`Error disposing part ${key}:`, error);
+                    }
+                });
+            });
+            partRefs.current = {};
+
+            // Stop transport and reset state
+            try {
+                Tone.Transport.stop();
+                Tone.Transport.cancel();
+            } catch (error) {
+                console.error('Error stopping transport:', error);
+            }
+
+            // Clean up audio context if it exists
+            if (audioContext) {
+                try {
+                    if (audioContext.state !== 'closed') {
+                        audioContext.close();
+                    }
+                } catch (error) {
+                    console.error('Error closing audio context:', error);
+                }
+            }
+        } catch (error) {
+            console.error('Error in cleanupAudioResources:', error);
+        }
+    };
+
+    // Update the cleanup effect
+    useEffect(() => {
+        return () => {
+            cleanupAudioResources();
+        };
+    }, []);
+
+    // Update the track change effect
+    useEffect(() => {
+        if (!tracks || !Array.isArray(tracks)) return;
+
+        const cleanupTrackResources = (trackId) => {
+            try {
+                // Clean up effects for this track
+                Object.entries(effectRefs.current).forEach(([key, effect]) => {
+                    if (key.startsWith(`${trackId}-`)) {
+                        try {
+                            if (effect && typeof effect.dispose === 'function') {
+                                effect.dispose();
+                            }
+                            delete effectRefs.current[key];
+                        } catch (error) {
+                            console.error(`Error cleaning up effect ${key} for track ${trackId}:`, error);
+                        }
+                    }
+                });
+
+                // Clean up synth for this track
+                const synth = synthRefs.current[trackId];
+                if (synth) {
+                    try {
+                        if (typeof synth.dispose === 'function') {
+                            synth.dispose();
+                        }
+                        delete synthRefs.current[trackId];
+                    } catch (error) {
+                        console.error(`Error cleaning up synth for track ${trackId}:`, error);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error in cleanupTrackResources for track ${trackId}:`, error);
+            }
+        };
+
+        tracks.forEach(track => {
+            if (!track || typeof track !== 'object') return;
+
+            const synth = synthRefs.current[track.id];
+            if (!synth) return;
+
+            // Ensure effects is always an array
+            const trackEffects = Array.isArray(track.effects) ? track.effects : [];
+            
+            // Clean up existing effects for this track
+            if (trackEffects && trackEffects.length > 0) {
+                trackEffects.forEach(effectName => {
+                    if (!effectName || typeof effectName !== 'string') return;
+                    
+                    const effectKey = `${track.id}-${effectName}`;
+                    const effect = effectRefs.current[effectKey];
+                    if (effect && typeof effect.dispose === 'function') {
+                        try {
+                            effect.dispose();
+                            delete effectRefs.current[effectKey];
+                        } catch (error) {
+                            console.error(`Error cleaning up effect ${effectName} for track ${track.id}:`, error);
+                        }
+                    }
+                });
+            }
+
+            // Reconnect synth to destination if no effects
+            if (!trackEffects || trackEffects.length === 0) {
+                try {
+                    if (synth.output) {
+                        synth.disconnect();
+                        synth.connect(Tone.getDestination());
+                    }
+                } catch (error) {
+                    console.error(`Error connecting synth for track ${track.id}:`, error);
+                }
+            }
+        });
+
+        return () => {
+            tracks.forEach(track => {
+                if (track && track.id) {
+                    cleanupTrackResources(track.id);
+                }
+            });
+        };
     }, [tracks]);
 
     return (

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
+import SystemHealthMonitor from '@/components/SystemHealthMonitor';
 
 interface User {
     uid: string;
@@ -114,7 +115,7 @@ export default function AdminPage() {
         <div className="min-h-screen bg-gray-900 p-8">
             <Navbar />
             <div className="max-w-4xl mx-auto">
-                <h1 className="text-2xl font-bold text-white mb-8">User Management</h1>
+                <h1 className="text-2xl font-bold text-white mb-8">Admin Dashboard</h1>
                 
                 {error && (
                     <div className="bg-red-500 text-white p-4 rounded-lg mb-4">
@@ -122,6 +123,13 @@ export default function AdminPage() {
                     </div>
                 )}
 
+                {/* System Health Monitor */}
+                <div className="mb-8">
+                    <h2 className="text-xl font-semibold text-white mb-4">System Health Monitor</h2>
+                    <SystemHealthMonitor />
+                </div>
+
+                <h2 className="text-xl font-semibold text-white mb-4">User Management</h2>
                 <div className="bg-gray-800 rounded-lg overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-700">
                         <thead className="bg-gray-700">
