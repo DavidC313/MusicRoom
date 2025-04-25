@@ -366,31 +366,7 @@ const EFFECTS = {
 };
 
 export default function MusicMaker() {
-    const [tracks, setTracks] = useState([
-        {
-            id: 1,
-            name: 'Track 1',
-            notes: [],
-            instrument: 'piano',
-            effects: [], // Explicitly initialize as empty array
-            volume: 0,
-            muted: false,
-            solo: false
-        }
-    ]);
-    const [selectedTrack, setSelectedTrack] = useState(1);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [isExporting, setIsExporting] = useState(false);
-    const [tempo, setTempo] = useState(120);
-    const [selectedScale, setSelectedScale] = useState('C Major');
-    const [noteLength, setNoteLength] = useState('8n');
     const [currentNote, setCurrentNote] = useState(null);
-    const [savedCompositions, setSavedCompositions] = useState([]);
-    const [showPianoRoll, setShowPianoRoll] = useState(false);
-    const canvasRef = useRef(null);
-    const synthRefs = useRef({});
-    const effectRefs = useRef({});
-    const animationFrameRef = useRef(null);
     const [drumVolumes, setDrumVolumes] = useState(
         Object.fromEntries(
             Object.entries(INSTRUMENTS.drums.volumeControls).map(([name, { default: defaultValue }]) => 

@@ -24,6 +24,8 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install
+      - name: Run ESLint
+        run: npm run lint
       - name: Build
         run: npm run build
       - name: Deploy to Azure Static Web Apps
