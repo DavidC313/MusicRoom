@@ -40,4 +40,6 @@ jobs:
           skip_app_build: false
           is_static_export: true
           skip_deploy_on_missing_secrets: true
-          verbose: true 
+          verbose: true
+          app_build_command: "npm run build"
+          app_artifact_location: "out" 
