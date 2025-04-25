@@ -5,6 +5,9 @@ import { AuthProvider } from '@/contexts/AuthContext';
 export const metadata: Metadata = {
   title: "MusicRoom",
   description: "Your personal music creation space",
+  icons: {
+    icon: '/musicroom.ico',
+  },
 };
 
 export default function RootLayout({
