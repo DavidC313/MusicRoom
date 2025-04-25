@@ -1734,6 +1734,7 @@ export default function MusicMaker() {
     useEffect(() => {
         if (!selectedMidiInput || !midiEnabled) return;
 
+        let lastNoteTime = 0;
         const handleMidiMessage = (message) => {
             try {
                 const [status, note, velocity] = message.data;
@@ -1745,13 +1746,19 @@ export default function MusicMaker() {
                     if (synth) {
                         try {
                             const noteName = Tone.Frequency(note, "midi").toNote();
+                            const currentTime = Tone.now();
+                            
+                            // Add a small offset if the current time is the same as the last note time
+                            const playTime = currentTime <= lastNoteTime ? lastNoteTime + 0.001 : currentTime;
+                            lastNoteTime = playTime;
+
                             if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
                                 const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
                                 if (drumType && typeof synth.player === 'function') {
-                                    synth.player(drumType).start();
+                                    synth.player(drumType).start(playTime);
                                 }
                             } else if (typeof synth.triggerAttackRelease === 'function') {
-                                synth.triggerAttackRelease(noteName, '8n');
+                                synth.triggerAttackRelease(noteName, '8n', playTime);
                             }
                         } catch (error) {
                             console.error('Error processing MIDI note:', error);
