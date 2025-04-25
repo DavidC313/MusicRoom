@@ -1,0 +1,39 @@
+# Core dependencies
+next==14.1.0
+react==18.2.0
+react-dom==18.2.0
+typescript==5.3.3
+@types/react==18.2.0
+@types/node==20.11.0
+
+# Audio processing
+tone==14.7.77
+@tonejs/midi==2.0.28
+
+# UI components and styling
+tailwindcss==3.4.1
+@tailwindcss/forms==0.5.7
+autoprefixer==10.4.17
+postcss==8.4.35
+
+# Authentication and database
+next-auth==4.24.5
+prisma==5.9.1
+@prisma/client==5.9.1
+
+# Development tools
+eslint==8.56.0
+prettier==3.2.5
+typescript-eslint==7.0.1
+@typescript-eslint/parser==7.0.1
+@typescript-eslint/eslint-plugin==7.0.1
+
+# Testing
+jest==29.7.0
+@testing-library/react==14.2.1
+@testing-library/jest-dom==6.4.2
+
+# Utility packages
+date-fns==3.3.1
+axios==1.6.7
+zustand==4.5.0 

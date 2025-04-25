@@ -1288,12 +1288,19 @@ export default function MusicMaker() {
                 console.log('Audio context started');
             }
 
-            // Calculate duration with padding
+            // Calculate timing values with safety checks
+            const beatsPerMinute = Math.max(20, Math.min(300, tempo)); // Ensure tempo is within reasonable bounds
+            const secondsPerBeat = 60 / beatsPerMinute;
+            const timePerStep = secondsPerBeat / STEPS_PER_BEAT;
+            const timePerBar = timePerStep * STEPS_PER_BAR;
+            console.log(`BPM: ${beatsPerMinute}, Time per beat: ${secondsPerBeat}s, Time per step: ${timePerStep}s, Time per bar: ${timePerBar}s`);
+
+            // Calculate duration with padding and minimum duration
             const maxNoteTime = Math.max(...tracks.flatMap(track => 
                 track.notes.map(note => note.x)
             ));
-            const timePerStep = (60 / tempo) / STEPS_PER_BEAT;
-            const duration = (maxNoteTime * timePerStep) + 4; // Add 4 seconds padding
+            const minDuration = 10; // Minimum 10 seconds
+            const duration = Math.max(minDuration, (maxNoteTime * timePerStep) + 4);
             console.log(`Export duration: ${duration} seconds, Tempo: ${tempo} BPM`);
 
             // Create offline context with higher sample rate
@@ -1381,7 +1388,7 @@ export default function MusicMaker() {
                         synth,
                         instrument,
                         length: note.length || noteLength,
-                        velocity: 0.8 // Fixed velocity for consistent playback
+                        velocity: 0.8 + (Math.random() * 0.2) // Add slight velocity variation
                     });
                     noteGroups.set(time, group);
                 });
@@ -1391,14 +1398,14 @@ export default function MusicMaker() {
             console.log('Scheduling notes for export...');
             const sortedTimes = Array.from(noteGroups.keys()).sort((a, b) => a - b);
             
-            // Schedule notes in chronological order
+            // Schedule notes in chronological order with proper timing
             for (let i = 0; i < sortedTimes.length; i++) {
                 const time = sortedTimes[i];
                 const notes = noteGroups.get(time);
                 
                 // Add small offsets to notes that start at the same time
                 notes.forEach((note, index) => {
-                    const offsetTime = time + (index * 0.0001); // Small offset to prevent timing conflicts
+                    const offsetTime = time + (index * 0.001); // Small offset to prevent timing conflicts
                     
                     if (note.instrument.isDrum) {
                         const drumType = note.instrument.drumMap[note.noteName];
@@ -1407,8 +1414,8 @@ export default function MusicMaker() {
                             console.log(`Scheduled drum ${drumType} at time ${offsetTime}`);
                         }
                     } else if (typeof note.synth.triggerAttackRelease === 'function') {
-                        // Calculate note length in seconds based on tempo
-                        const noteLengthInSeconds = (60 / tempo) * 
+                        // Calculate note length in seconds based on tempo and note length
+                        const noteLengthInSeconds = secondsPerBeat * 
                             (note.length === '1n' ? 4 : 
                              note.length === '2n' ? 2 :
                              note.length === '4n' ? 1 :
