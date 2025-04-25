@@ -3,6 +3,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as Tone from 'tone';
 import { FaPlay, FaStop, FaTrash, FaSave, FaUpload, FaMusic, FaDownload, FaPlus, FaChartLine, FaKeyboard, FaRecordVinyl, FaCut, FaCopy, FaPaste, FaSync, FaCheck, FaEraser } from 'react-icons/fa';
+import { useAuth } from '@/contexts/AuthContext';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { saveAs } from 'file-saver';
+import { render } from 'react-dom';
+import { exportToMP3 } from '@/lib/audioUtils';
 
 const SCALES = {
     'C Major': ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
@@ -366,6 +372,17 @@ const EFFECTS = {
 };
 
 export default function MusicMaker() {
+    const { user } = useAuth();
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [tracks, setTracks] = useState([]);
+    const [effects, setEffects] = useState([]);
+    const audioContextRef = useRef(null);
+    const sourceNodeRef = useRef(null);
+    const gainNodeRef = useRef(null);
+    const analyserNodeRef = useRef(null);
+    const animationFrameRef = useRef(null);
     const [currentNote, setCurrentNote] = useState(null);
     const [drumVolumes, setDrumVolumes] = useState(
         Object.fromEntries(
@@ -394,11 +411,101 @@ export default function MusicMaker() {
     const [resizeStart, setResizeStart] = useState(null);
     const [copiedNotes, setCopiedNotes] = useState([]);
     const [quantizeValue, setQuantizeValue] = useState(1); // 1 = no quantization
-    const [audioContext, setAudioContext] = useState(null);
-    const [currentStep, setCurrentStep] = useState(0);
-    const partRefs = useRef({});
-    const [isLooping, setIsLooping] = useState(false);
-    const [loopEnd, setLoopEnd] = useState(0);
+    const [selectedScale, setSelectedScale] = useState('C Major');
+    const [selectedTrack, setSelectedTrack] = useState(1);
+    const [noteLength, setNoteLength] = useState('8n');
+    const [savedCompositions, setSavedCompositions] = useState([]);
+    const [isExporting, setIsExporting] = useState(false);
+
+    const initializeAudioContext = useCallback(() => {
+        if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            gainNodeRef.current = audioContextRef.current.createGain();
+            analyserNodeRef.current = audioContextRef.current.createAnalyser();
+            gainNodeRef.current.connect(analyserNodeRef.current);
+            analyserNodeRef.current.connect(audioContextRef.current.destination);
+        }
+    }, []);
+
+    const cleanupAudioContext = useCallback(() => {
+        if (sourceNodeRef.current) {
+            sourceNodeRef.current.stop();
+            sourceNodeRef.current = null;
+        }
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+        if (animationFrameRef.current) {
+            cancelAnimationFrame(animationFrameRef.current);
+            animationFrameRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        initializeAudioContext();
+        return () => {
+            cleanupAudioContext();
+        };
+    }, [initializeAudioContext, cleanupAudioContext]);
+
+    const handlePlay = useCallback(async () => {
+        if (!audioContextRef.current) return;
+        
+        try {
+            const audioBuffer = await exportToMP3(tracks, effects);
+            sourceNodeRef.current = audioContextRef.current.createBufferSource();
+            sourceNodeRef.current.buffer = audioBuffer;
+            sourceNodeRef.current.connect(gainNodeRef.current);
+            sourceNodeRef.current.start();
+            setIsPlaying(true);
+            
+            const updateTime = () => {
+                if (sourceNodeRef.current) {
+                    setCurrentTime(sourceNodeRef.current.context.currentTime);
+                    animationFrameRef.current = requestAnimationFrame(updateTime);
+                }
+            };
+            updateTime();
+        } catch (error) {
+            console.error('Error playing audio:', error);
+        }
+    }, [tracks, effects]);
+
+    const handleStop = useCallback(() => {
+        if (sourceNodeRef.current) {
+            sourceNodeRef.current.stop();
+            sourceNodeRef.current = null;
+        }
+        setIsPlaying(false);
+        setCurrentTime(0);
+    }, []);
+
+    const handleSave = useCallback(async () => {
+        if (!user) return;
+        
+        try {
+            await addDoc(collection(db, 'compositions'), {
+                userId: user.uid,
+                tracks,
+                effects,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error('Error saving composition:', error);
+        }
+    }, [user, tracks, effects]);
+
+    const handleExport = useCallback(async () => {
+        try {
+            const audioBuffer = await exportToMP3(tracks, effects);
+            const blob = new Blob([audioBuffer], { type: 'audio/mp3' });
+            saveAs(blob, 'composition.mp3');
+        } catch (error) {
+            console.error('Error exporting audio:', error);
+        }
+    }, [tracks, effects]);
 
     // Calculate time per step based on tempo
     const timePerStep = useMemo(() => {
@@ -1261,1160 +1368,6 @@ export default function MusicMaker() {
         localStorage.removeItem('compositions');
     };
 
-    const exportToMP3 = async () => {
-        if (isExporting || tracks.every(track => track.notes.length === 0)) {
-            console.log('Export skipped: already exporting or no notes');
-            return;
-        }
-
-        let offlineContext = null;
-        let originalContext = null;
-        let masterVolume = null;
-        let synths = {};
-        let effects = {};
-
-        try {
-            console.log('Starting export process...');
-            setIsExporting(true);
-            
-            // Ensure audio context is running
-            if (Tone.context.state !== 'running') {
-                console.log('Starting audio context for export...');
-                await Tone.start();
-                console.log('Audio context started');
-            }
-
-            // Calculate timing values with safety checks
-            const beatsPerMinute = Math.max(20, Math.min(300, tempo)); // Ensure tempo is within reasonable bounds
-            const secondsPerBeat = 60 / beatsPerMinute;
-            const timePerStep = secondsPerBeat / STEPS_PER_BEAT;
-            const timePerBar = timePerStep * STEPS_PER_BAR;
-            console.log(`BPM: ${beatsPerMinute}, Time per beat: ${secondsPerBeat}s, Time per step: ${timePerStep}s, Time per bar: ${timePerBar}s`);
-
-            // Calculate duration with padding and minimum duration
-            const maxNoteTime = Math.max(...tracks.flatMap(track => 
-                track.notes.map(note => note.x)
-            ));
-            const minDuration = 10; // Minimum 10 seconds
-            const duration = Math.max(minDuration, (maxNoteTime * timePerStep) + 4);
-            console.log(`Export duration: ${duration} seconds, Tempo: ${tempo} BPM`);
-
-            // Create offline context with higher sample rate
-            console.log('Creating offline context...');
-            offlineContext = new Tone.OfflineContext(2, duration, 44100);
-            originalContext = Tone.context;
-            Tone.setContext(offlineContext);
-            console.log('Offline context created and set');
-
-            // Create a master volume with proper gain staging
-            masterVolume = new Tone.Volume(-6).toDestination();
-            console.log('Master volume created for export');
-            
-            // Initialize all synths and effects
-            console.log('Initializing synths and effects for export...');
-            tracks.forEach(track => {
-                if (track.muted) {
-                    console.log(`Track ${track.id} is muted, skipping`);
-                    return;
-                }
-                
-                const instrument = INSTRUMENTS[track.instrument];
-                if (instrument.isDrum) {
-                    const drumPlayer = instrument.synth();
-                    synths[track.id] = drumPlayer;
-                    
-                    // Initialize drum volumes
-                    if (drumPlayer.volumes) {
-                        Object.entries(drumPlayer.volumes).forEach(([name, volume]) => {
-                            if (volume && !volume.volume) {
-                                const volumeNode = new Tone.Volume(drumVolumes[name] || 0);
-                                volume.connect(volumeNode);
-                                volumeNode.connect(masterVolume);
-                                volume.volume = volumeNode;
-                            }
-                        });
-                    } else {
-                        drumPlayer.connect(masterVolume);
-                    }
-                    console.log(`Drum player initialized for track ${track.id}`);
-                } else {
-                    const synth = instrument.synth();
-                    synths[track.id] = synth;
-                    
-                    // Initialize effects chain
-                    if (track.effects && track.effects.length > 0) {
-                        let lastNode = synth;
-                        track.effects.forEach(effectName => {
-                            const effect = EFFECTS[effectName];
-                            if (effect) {
-                                const effectInstance = effect.effect();
-                                effects[`${track.id}-${effectName}`] = effectInstance;
-                                lastNode.chain(effectInstance);
-                                lastNode = effectInstance;
-                            }
-                        });
-                        lastNode.connect(masterVolume);
-                    } else {
-                        synth.connect(masterVolume);
-                    }
-                    console.log(`Synth initialized for track ${track.id}`);
-                }
-            });
-
-            // Collect all notes and group them by time
-            console.log('Collecting and grouping notes...');
-            const noteGroups = new Map();
-            tracks.forEach(track => {
-                if (track.muted) return;
-                
-                const synth = synths[track.id];
-                const instrument = INSTRUMENTS[track.instrument];
-                
-                track.notes.forEach(note => {
-                    const time = note.x * timePerStep;
-                    const scaleNotes = SCALES[selectedScale];
-                    const noteIndex = scaleNotes.length - 1 - (note.y % scaleNotes.length);
-                    const octave = Math.floor(note.y / scaleNotes.length) + 4;
-                    const noteName = `${scaleNotes[noteIndex]}${octave}`;
-                    
-                    const group = noteGroups.get(time) || [];
-                    group.push({
-                        time,
-                        noteName,
-                        synth,
-                        instrument,
-                        length: note.length || noteLength,
-                        velocity: 0.8 + (Math.random() * 0.2) // Add slight velocity variation
-                    });
-                    noteGroups.set(time, group);
-                });
-            });
-
-            // Sort times and schedule notes with proper timing
-            console.log('Scheduling notes for export...');
-            const sortedTimes = Array.from(noteGroups.keys()).sort((a, b) => a - b);
-            
-            // Schedule notes in chronological order with proper timing
-            for (let i = 0; i < sortedTimes.length; i++) {
-                const time = sortedTimes[i];
-                const notes = noteGroups.get(time);
-                
-                // Add small offsets to notes that start at the same time
-                notes.forEach((note, index) => {
-                    const offsetTime = time + (index * 0.001); // Small offset to prevent timing conflicts
-                    
-                    if (note.instrument.isDrum) {
-                        const drumType = note.instrument.drumMap[note.noteName];
-                        if (drumType && typeof note.synth.player === 'function') {
-                            note.synth.player(drumType).start(offsetTime);
-                            console.log(`Scheduled drum ${drumType} at time ${offsetTime}`);
-                        }
-                    } else if (typeof note.synth.triggerAttackRelease === 'function') {
-                        // Calculate note length in seconds based on tempo and note length
-                        const noteLengthInSeconds = secondsPerBeat * 
-                            (note.length === '1n' ? 4 : 
-                             note.length === '2n' ? 2 :
-                             note.length === '4n' ? 1 :
-                             note.length === '8n' ? 0.5 :
-                             note.length === '16n' ? 0.25 : 0.5);
-                        
-                        // Ensure minimum note length
-                        const minNoteLength = 0.1; // 100ms minimum
-                        const finalNoteLength = Math.max(minNoteLength, noteLengthInSeconds);
-                        
-                        try {
-                            note.synth.triggerAttackRelease(
-                                note.noteName, 
-                                finalNoteLength, 
-                                offsetTime,
-                                note.velocity
-                            );
-                            console.log(`Scheduled note ${note.noteName} at time ${offsetTime} for ${finalNoteLength} seconds`);
-                        } catch (error) {
-                            console.error(`Error scheduling note at time ${offsetTime}:`, error);
-                        }
-                    }
-                });
-            }
-
-            // Render the audio with proper timing
-            console.log('Rendering audio...');
-            const buffer = await offlineContext.render();
-            console.log('Audio rendered successfully');
-
-            // Convert the buffer to a WAV file
-            console.log('Converting to WAV format...');
-            const wavBuffer = new ArrayBuffer(44 + buffer.length * 2);
-            const view = new DataView(wavBuffer);
-            
-            // Write WAV header
-            const writeString = (offset, string) => {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            };
-            
-            writeString(0, 'RIFF');
-            view.setUint32(4, 36 + buffer.length * 2, true);
-            writeString(8, 'WAVE');
-            writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, 2, true);
-            view.setUint32(24, 44100, true);
-            view.setUint32(28, 44100 * 2 * 2, true);
-            view.setUint16(32, 2 * 2, true);
-            view.setUint16(34, 16, true);
-            writeString(36, 'data');
-            view.setUint32(40, buffer.length * 2, true);
-            
-            // Write the audio data
-            const channelData = buffer.getChannelData(0);
-            for (let i = 0; i < channelData.length; i++) {
-                const sample = Math.max(-1, Math.min(1, channelData[i]));
-                view.setInt16(44 + i * 2, sample * 0x7FFF, true);
-            }
-            console.log('WAV file created');
-            
-            // Create a blob from the WAV buffer
-            const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-            const url = URL.createObjectURL(blob);
-            console.log('Blob created and URL generated');
-            
-            // Create download link with timestamp
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const anchor = document.createElement('a');
-            anchor.download = `composition-${timestamp}.wav`;
-            anchor.href = url;
-            anchor.click();
-            console.log('Download initiated');
-
-        } catch (error) {
-            console.error('Error during export:', error);
-        } finally {
-            // Clean up resources
-            if (masterVolume) {
-                masterVolume.dispose();
-            }
-            Object.values(synths).forEach(synth => {
-                if (synth && typeof synth.dispose === 'function') {
-                    synth.dispose();
-                }
-            });
-            Object.values(effects).forEach(effect => {
-                if (effect && typeof effect.dispose === 'function') {
-                    effect.dispose();
-                }
-            });
-            if (offlineContext) {
-                offlineContext.dispose();
-            }
-            if (originalContext) {
-                Tone.setContext(originalContext);
-            }
-            setIsExporting(false);
-            console.log('Export process completed, resources cleaned up');
-        }
-    };
-
-    const updateDrumVolume = (drumName, value) => {
-        setDrumVolumes(prev => ({
-            ...prev,
-            [drumName]: value
-        }));
-        
-        // Update the volume in the audio context
-        const synth = synthRefs.current[selectedTrack];
-        if (synth && synth.volumes && synth.volumes[drumName]) {
-            synth.volumes[drumName].volume.value = value;
-        }
-    };
-
-    useEffect(() => {
-        const saved = localStorage.getItem('compositions');
-        if (saved) {
-            setSavedCompositions(JSON.parse(saved));
-        }
-    }, []);
-
-    // Add visualizer
-    useEffect(() => {
-        if (!showVisualizer || !visualizerRef.current) return;
-
-        const canvas = visualizerRef.current;
-        const ctx = canvas.getContext('2d');
-        let analyser = null;
-        let animationFrameId = null;
-        
-        const initVisualizer = async () => {
-            try {
-                // Create analyser node
-                analyser = new Tone.Analyser({
-                    type: "waveform",
-                    size: 2048,
-                    smoothing: 0.8
-                });
-                
-                // Connect master output to analyser
-                Tone.getDestination().connect(analyser);
-                console.log('Analyser connected to master output');
-
-                // Create gradient for the visualizer
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, '#3b82f6');
-                gradient.addColorStop(0.5, '#8b5cf6');
-                gradient.addColorStop(1, '#ec4899');
-
-                const draw = () => {
-                    if (!showVisualizer) return;
-
-                    try {
-                        // Get the waveform data
-                        const waveform = analyser.getValue();
-
-                        const width = canvas.width;
-                        const height = canvas.height;
-
-                        // Clear canvas with a fade effect
-                        ctx.fillStyle = 'rgba(17, 24, 39, 0.3)';
-                        ctx.fillRect(0, 0, width, height);
-
-                        // Draw the waveform
-                        ctx.beginPath();
-                        ctx.lineWidth = 2;
-                        ctx.strokeStyle = gradient;
-                        ctx.shadowBlur = 10;
-                        ctx.shadowColor = '#3b82f6';
-
-                        const sliceWidth = width / waveform.length;
-                        let x = 0;
-
-                        // Draw the main waveform with smoothing
-                        for (let i = 0; i < waveform.length; i++) {
-                            const v = waveform[i];
-                            const y = (v + 1) / 2 * height;
-
-                            if (i === 0) {
-                                ctx.moveTo(x, y);
-                            } else {
-                                const prevX = x - sliceWidth;
-                                const prevY = (waveform[i - 1] + 1) / 2 * height;
-                                const cpX = (x + prevX) / 2;
-                                ctx.quadraticCurveTo(cpX, prevY, x, y);
-                            }
-
-                            x += sliceWidth;
-                        }
-
-                        ctx.stroke();
-
-                        // Mirror effect
-                        ctx.save();
-                        ctx.scale(1, -1);
-                        ctx.translate(0, -height);
-                        ctx.globalAlpha = 0.3;
-                        ctx.stroke();
-                        ctx.restore();
-
-                        // Request next frame
-                        animationFrameId = requestAnimationFrame(draw);
-                    } catch (error) {
-                        console.error('Error in visualizer draw function:', error);
-                        // Stop the animation if there's an error
-                        if (animationFrameId) {
-                            cancelAnimationFrame(animationFrameId);
-                        }
-                    }
-                };
-
-                // Start drawing
-                console.log('Starting visualizer drawing');
-                draw();
-
-            } catch (error) {
-                console.error('Error initializing visualizer:', error);
-            }
-        };
-
-        initVisualizer();
-
-        return () => {
-            try {
-                // Clean up animation frame
-                if (animationFrameId) {
-                    cancelAnimationFrame(animationFrameId);
-                }
-                
-                // Clean up audio nodes
-                if (analyser) {
-                    try {
-                        Tone.getDestination().disconnect(analyser);
-                        analyser.dispose();
-                    } catch (error) {
-                        console.error('Error cleaning up analyser:', error);
-                    }
-                }
-                
-                // Clear canvas
-                if (ctx) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-                
-                console.log('Visualizer cleaned up');
-            } catch (error) {
-                console.error('Error in visualizer cleanup:', error);
-            }
-        };
-    }, [showVisualizer]);
-
-    // MIDI Setup
-    useEffect(() => {
-        let midiAccess = null;
-        let midiInputs = [];
-
-        const setupMidi = async () => {
-            try {
-                if (navigator.requestMIDIAccess) {
-                    midiAccess = await navigator.requestMIDIAccess();
-                    midiInputs = Array.from(midiAccess.inputs.values());
-                    setMidiInputs(midiInputs);
-
-                    midiAccess.onstatechange = (e) => {
-                        try {
-                            if (e.port.type === 'input') {
-                                const updatedInputs = Array.from(midiAccess.inputs.values());
-                                setMidiInputs(updatedInputs);
-                                
-                                // Handle device disconnection
-                                if (e.port.state === 'disconnected' && selectedMidiInput?.id === e.port.id) {
-                                    setSelectedMidiInput(null);
-                                    console.warn('MIDI device disconnected:', e.port.name);
-                                }
-                            }
-                        } catch (error) {
-                            console.error('Error handling MIDI state change:', error);
-                        }
-                    };
-                }
-            } catch (error) {
-                console.error('Error setting up MIDI:', error);
-                setMidiEnabled(false);
-            }
-        };
-
-        setupMidi();
-
-        return () => {
-            try {
-                // Clean up MIDI resources
-                if (midiAccess) {
-                    midiAccess.onstatechange = null;
-                    // Close all MIDI ports
-                    midiInputs.forEach(input => {
-                        try {
-                            if (input && typeof input.close === 'function') {
-                                input.close();
-                            }
-                        } catch (error) {
-                            console.error('Error closing MIDI input:', error);
-                        }
-                    });
-                }
-            } catch (error) {
-                console.error('Error in MIDI cleanup:', error);
-            }
-        };
-    }, []);
-
-    // MIDI Input Handler
-    useEffect(() => {
-        if (!selectedMidiInput || !midiEnabled) return;
-
-        let lastNoteTime = 0;
-        const handleMidiMessage = (message) => {
-            try {
-                const [status, note, velocity] = message.data;
-                const command = status >> 4;
-                const channel = status & 0xf;
-
-                if (command === 9 && velocity > 0) { // Note on
-                    const synth = synthRefs.current[selectedTrack];
-                    if (synth) {
-                        try {
-                            const noteName = Tone.Frequency(note, "midi").toNote();
-                            const currentTime = Tone.now();
-                            
-                            // Add a small offset if the current time is the same as the last note time
-                            const playTime = currentTime <= lastNoteTime ? lastNoteTime + 0.001 : currentTime;
-                            lastNoteTime = playTime;
-
-                            if (INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].isDrum) {
-                                const drumType = INSTRUMENTS[tracks.find(t => t.id === selectedTrack)?.instrument].drumMap[noteName];
-                                if (drumType && typeof synth.player === 'function') {
-                                    synth.player(drumType).start(playTime);
-                                }
-                            } else if (typeof synth.triggerAttackRelease === 'function') {
-                                synth.triggerAttackRelease(noteName, '8n', playTime);
-                            }
-                        } catch (error) {
-                            console.error('Error processing MIDI note:', error);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('Error handling MIDI message:', error);
-            }
-        };
-
-        try {
-            selectedMidiInput.onmidimessage = handleMidiMessage;
-        } catch (error) {
-            console.error('Error setting up MIDI message handler:', error);
-        }
-
-        return () => {
-            try {
-                if (selectedMidiInput) {
-                    selectedMidiInput.onmidimessage = null;
-                }
-            } catch (error) {
-                console.error('Error cleaning up MIDI message handler:', error);
-            }
-        };
-    }, [selectedMidiInput, midiEnabled, selectedTrack, tracks]);
-
-    // Piano Roll Setup
-    useEffect(() => {
-        if (!showPianoRoll || !pianoRollRef.current) return;
-
-        const canvas = pianoRollRef.current;
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        const gridSize = 20;
-        const labelWidth = 40;
-        const playableWidth = width - labelWidth;
-        const rows = Math.floor(height / gridSize);
-        const cols = Math.floor(playableWidth / gridSize);
-
-        // Clear canvas
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, width, height);
-
-        // Draw scale notes with alternating colors and labels
-        const scaleNotes = SCALES[selectedScale];
-        const octaves = Math.ceil(rows / scaleNotes.length);
-        
-        // Draw background and labels
-        for (let octave = 0; octave < octaves; octave++) {
-            scaleNotes.forEach((note, index) => {
-                const y = rows - (octave * scaleNotes.length + index) - 1;
-                if (y < 0) return;
-                
-                // Draw alternating background colors
-                ctx.fillStyle = (octave * scaleNotes.length + index) % 2 === 0 ? '#2a2a2a' : '#1f1f1f';
-                ctx.fillRect(0, y * gridSize, width, gridSize);
-                
-                // Draw note label with octave number
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '12px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(`${note}${octave + 4}`, labelWidth / 2, y * gridSize + gridSize / 2);
-            });
-        }
-
-        // Draw grid lines
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 1;
-
-        // Draw horizontal lines
-        for (let i = 0; i <= rows; i++) {
-            ctx.beginPath();
-            ctx.moveTo(labelWidth, i * gridSize);
-            ctx.lineTo(width, i * gridSize);
-            ctx.stroke();
-        }
-
-        // Draw vertical lines
-        for (let i = 0; i <= cols; i++) {
-            ctx.beginPath();
-            ctx.moveTo(i * gridSize + labelWidth, 0);
-            ctx.lineTo(i * gridSize + labelWidth, height);
-            ctx.stroke();
-        }
-
-        // Draw notes
-        pianoRollNotes.forEach(note => {
-            // Calculate note position and size
-            const noteX = note.x * gridSize + labelWidth;
-            const noteY = note.y * gridSize;
-            let noteWidth = note.width * gridSize;
-            
-            // Ensure note stays within bounds
-            if (noteX + noteWidth > width) {
-                noteWidth = width - noteX;
-            }
-            
-            ctx.fillStyle = note.color || '#3b82f6';
-            ctx.fillRect(noteX, noteY, noteWidth, gridSize);
-        });
-    }, [showPianoRoll, pianoRollNotes, selectedScale]);
-
-    const handlePianoRollMouseDown = (e) => {
-        if (!showPianoRoll || !pianoRollRef.current) return;
-
-        const canvas = pianoRollRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const gridSize = 20;
-        const labelWidth = 40;
-        const playableWidth = canvas.width - labelWidth;
-
-        // Adjust x coordinate to account for label width
-        const adjustedX = x - labelWidth;
-        if (adjustedX < 0 || adjustedX > playableWidth) return;
-
-        // Calculate grid position
-        const gridX = Math.floor(adjustedX / gridSize);
-        const gridY = Math.floor(y / gridSize);
-
-        // Find clicked note
-        const clickedNote = pianoRollNotes.find(note => {
-            const noteStartX = note.x * gridSize;
-            const noteEndX = noteStartX + (note.width * gridSize);
-            return adjustedX >= noteStartX && 
-                   adjustedX <= noteEndX && 
-                   gridY === note.y;
-        });
-
-        if (clickedNote) {
-            // Check if clicking on the right edge for resizing
-            const noteRightEdge = (clickedNote.x + clickedNote.width) * gridSize;
-            if (Math.abs(adjustedX - noteRightEdge) < 10) {
-                setIsResizing(true);
-                setResizeStart({ x: gridX, note: clickedNote });
-            } else {
-                setIsDragging(true);
-                setDragStart({ x: gridX, y: gridY, note: clickedNote });
-                if (!e.ctrlKey) {
-                    setSelectedNotes([clickedNote]);
-                } else {
-                    setSelectedNotes(prev => [...prev, clickedNote]);
-                }
-            }
-        } else {
-            // Add new note
-            const scaleNotes = SCALES[selectedScale];
-            const noteIndex = scaleNotes.length - 1 - (gridY % scaleNotes.length);
-            const octave = Math.floor(gridY / scaleNotes.length) + 4;
-            const pitch = `${scaleNotes[noteIndex]}${octave}`;
-
-            const newNote = {
-                x: gridX,
-                y: gridY,
-                pitch,
-                width: 1,
-                color: '#3b82f6',
-                id: Date.now() + Math.random()
-            };
-
-            setPianoRollNotes(prev => [...prev, newNote]);
-            setSelectedNotes([newNote]);
-
-            // Play the note
-            playNote(pitch);
-        }
-    };
-
-    const handlePianoRollMouseMove = (e) => {
-        if (!showPianoRoll || !pianoRollRef.current) return;
-
-        const canvas = pianoRollRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const gridSize = 20;
-        const labelWidth = 40;
-        const playableWidth = canvas.width - labelWidth;
-
-        // Adjust x coordinate to account for label width
-        const adjustedX = x - labelWidth;
-        if (adjustedX < 0 || adjustedX > playableWidth) return;
-
-        // Calculate grid position
-        const gridX = Math.floor(adjustedX / gridSize);
-        const gridY = Math.floor(y / gridSize);
-
-        if (isDragging && dragStart) {
-            // Calculate maximum allowed position
-            const maxX = Math.floor(playableWidth / gridSize) - 1;
-            const deltaX = Math.min(maxX - dragStart.note.x, Math.max(0, gridX - dragStart.x));
-            const deltaY = gridY - dragStart.y;
-
-            setPianoRollNotes(prev => 
-                prev.map(note => 
-                    selectedNotes.includes(note)
-                        ? { ...note, x: note.x + deltaX, y: note.y + deltaY }
-                        : note
-                )
-            );
-
-            setDragStart({ x: gridX, y: gridY, note: dragStart.note });
-        } else if (isResizing && resizeStart) {
-            // Calculate maximum allowed width
-            const maxWidth = Math.floor(playableWidth / gridSize) - resizeStart.note.x;
-            const deltaX = Math.min(maxWidth - resizeStart.note.width, Math.max(1, gridX - resizeStart.x));
-            const newWidth = Math.max(1, resizeStart.note.width + deltaX);
-
-            setPianoRollNotes(prev => 
-                prev.map(note => 
-                    note === resizeStart.note
-                        ? { ...note, width: newWidth }
-                        : note
-                )
-            );
-
-            setResizeStart({ x: gridX, note: resizeStart.note });
-        }
-    };
-
-    // Helper function to play a note
-    const playNote = (pitch) => {
-        const track = tracks.find(t => t.id === selectedTrack);
-        if (!track) return;
-
-        // Initialize synth if needed
-        if (!synthRefs.current[selectedTrack]) {
-            const instrument = INSTRUMENTS[track.instrument];
-            if (instrument.isDrum) {
-                synthRefs.current[selectedTrack] = instrument.synth();
-            } else {
-                const synth = instrument.synth();
-                synthRefs.current[selectedTrack] = synth;
-                synth.toDestination();
-            }
-        }
-
-        const synth = synthRefs.current[selectedTrack];
-        if (synth) {
-            try {
-                if (INSTRUMENTS[track.instrument].isDrum) {
-                    const drumType = INSTRUMENTS[track.instrument].drumMap[pitch];
-                    if (drumType && typeof synth.player === 'function') {
-                        synth.player(drumType).start(Tone.now());
-                    }
-                } else if (typeof synth.triggerAttackRelease === 'function') {
-                    synth.triggerAttackRelease(pitch, '8n', Tone.now());
-                }
-            } catch (error) {
-                console.error('Error playing note:', error);
-            }
-        }
-    };
-
-    // Keyboard Shortcuts
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            // Play/Stop
-            if (e.key === ' ') {
-                e.preventDefault();
-                if (isPlaying) {
-                    stopPlayback();
-                } else {
-                    playSequence();
-                }
-            }
-            // Record
-            if (e.key === 'r' && !e.ctrlKey) {
-                e.preventDefault();
-                setIsRecording(!isRecording);
-            }
-            // Copy
-            if (e.key === 'c' && e.ctrlKey) {
-                e.preventDefault();
-                if (selectedNotes.length > 0) {
-                    setCopiedNotes(selectedNotes);
-                }
-            }
-            // Paste
-            if (e.key === 'v' && e.ctrlKey) {
-                e.preventDefault();
-                if (copiedNotes.length > 0) {
-                    const offset = Math.max(...pianoRollNotes.map(n => n.x)) + 1;
-                    const newNotes = copiedNotes.map(note => ({
-                        ...note,
-                        x: note.x + offset,
-                        id: Date.now() + Math.random()
-                    }));
-                    setPianoRollNotes(prev => [...prev, ...newNotes]);
-                }
-            }
-            // Delete
-            if (e.key === 'Delete' || e.key === 'Backspace') {
-                e.preventDefault();
-                setPianoRollNotes(prev => prev.filter(note => !selectedNotes.includes(note)));
-                setSelectedNotes([]);
-            }
-            // Quantize
-            if (e.key === 'q' && e.ctrlKey) {
-                e.preventDefault();
-                if (selectedNotes.length > 0) {
-                    const quantizedNotes = selectedNotes.map(note => ({
-                        ...note,
-                        x: Math.round(note.x / quantizeValue) * quantizeValue
-                    }));
-                    setPianoRollNotes(prev => 
-                        prev.map(note => 
-                            selectedNotes.includes(note) 
-                                ? quantizedNotes.find(n => n.id === note.id) 
-                                : note
-                        )
-                    );
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isPlaying, isRecording, selectedNotes, copiedNotes, quantizeValue, pianoRollNotes]);
-
-    // MIDI Recording
-    useEffect(() => {
-        if (!isRecording || !selectedMidiInput) return;
-
-        const startTime = Tone.now();
-        const notes = [];
-        const gridSize = 20; // Size of each grid cell
-        const timePerStep = (60 / tempo) / STEPS_PER_BEAT; // Time per step in seconds
-        const currentScale = selectedScale; // Capture current scale
-        const currentTrackId = selectedTrack; // Capture current track ID
-
-        const handleMidiMessage = (message) => {
-            const [status, note, velocity] = message.data;
-            const command = status >> 4;
-            const channel = status & 0xf;
-
-            if (command === 9 && velocity > 0) { // Note on
-                const noteName = Tone.Frequency(note, "midi").toNote();
-                const time = Tone.now() - startTime;
-                notes.push({
-                    note: noteName,
-                    time,
-                    velocity,
-                    duration: 0
-                });
-            } else if (command === 8 || (command === 9 && velocity === 0)) { // Note off
-                const noteName = Tone.Frequency(note, "midi").toNote();
-                const noteIndex = notes.findIndex(n => n.note === noteName && n.duration === 0);
-                if (noteIndex !== -1) {
-                    notes[noteIndex].duration = Tone.now() - startTime - notes[noteIndex].time;
-                }
-            }
-        };
-
-        selectedMidiInput.onmidimessage = handleMidiMessage;
-
-        return () => {
-            if (selectedMidiInput) {
-                selectedMidiInput.onmidimessage = null;
-            }
-            if (notes.length > 0) {
-                // Convert recorded notes to piano roll format
-                const pianoRollNotes = notes.map(note => {
-                    // Convert time to grid position
-                    const x = Math.floor(note.time / timePerStep);
-                    // Find the note's position in the scale
-                    const scaleNotes = SCALES[currentScale];
-                    const noteIndex = scaleNotes.findIndex(n => note.note.startsWith(n));
-                    const octave = parseInt(note.note.slice(-1));
-                    const y = (octave - 4) * scaleNotes.length + (scaleNotes.length - 1 - noteIndex);
-                    
-                    return {
-                        x,
-                        y,
-                        pitch: note.note,
-                        width: Math.max(1, Math.floor(note.duration / timePerStep)),
-                        color: '#3b82f6',
-                        id: Date.now() + Math.random()
-                    };
-                });
-
-                // Add notes to piano roll
-                setPianoRollNotes(prev => [...prev, ...pianoRollNotes]);
-
-                // Add notes to the current track
-                setTracks(prevTracks => prevTracks.map(track => {
-                    if (track.id === currentTrackId) {
-                        const newNotes = pianoRollNotes.map(note => ({
-                            x: note.x,
-                            y: note.y,
-                            pitch: note.pitch,
-                            time: note.x * 16,
-                            length: '8n'
-                        }));
-                        return {
-                            ...track,
-                            notes: [...track.notes, ...newNotes]
-                        };
-                    }
-                    return track;
-                }));
-            }
-        };
-    }, [isRecording, selectedMidiInput]); // Only depend on these two values
-
-    // Note Editing
-    const handlePianoRollMouseUp = () => {
-        setIsDragging(false);
-        setIsResizing(false);
-        setDragStart(null);
-        setResizeStart(null);
-    };
-
-    // Add a new effect to handle track changes
-    useEffect(() => {
-        const track = tracks.find(t => t.id === selectedTrack);
-        if (!track) return;
-
-        const initTrackSynth = async () => {
-            try {
-                if (Tone.context.state !== 'running') {
-                    await Tone.start();
-                }
-
-                if (!synthRefs.current[selectedTrack]) {
-                    const instrument = INSTRUMENTS[track.instrument];
-                    if (instrument.isDrum) {
-                        const drumPlayer = instrument.synth();
-                        synthRefs.current[selectedTrack] = drumPlayer;
-                    } else {
-                        const synth = instrument.synth();
-                        synthRefs.current[selectedTrack] = synth;
-                        synth.toDestination();
-                    }
-                }
-
-                // Update track volume based on mute/solo state
-                const synth = synthRefs.current[selectedTrack];
-                if (synth) {
-                    const volumeValue = track.muted ? -Infinity : track.volume;
-                    synth.volume.value = volumeValue;
-                }
-            } catch (error) {
-                console.error('Error initializing track synth:', error);
-            }
-        };
-
-        initTrackSynth();
-    }, [selectedTrack, tracks]);
-
-    // Add a new effect to handle real-time track volume updates during playback
-    useEffect(() => {
-        const updateTrackVolumes = () => {
-            try {
-            // Check if any track is soloed
-            const anySoloed = tracks.some(t => t.solo);
-            
-            tracks.forEach(track => {
-                    try {
-                const synth = synthRefs.current[track.id];
-                        const instrument = INSTRUMENTS[track.instrument];
-                        
-                        // Skip if no synth or if synth is not properly initialized
-                        if (!synth || !instrument) {
-                            console.log(`Skipping volume update for track ${track.id} - synth or instrument not ready`);
-                            return;
-                        }
-
-                        const volumeValue = anySoloed 
-                            ? (track.solo ? 0 : -Infinity)
-                            : (track.muted ? -Infinity : 0);
-
-                        if (instrument.isDrum && synth.volumes) {
-                            // Handle drum synth volumes
-                            Object.entries(synth.volumes).forEach(([name, volume]) => {
-                                if (volume && volume.volume) {
-                                    try {
-                                        if (typeof volume.volume.setValueAtTime === 'function') {
-                                            volume.volume.setValueAtTime(volumeValue, Tone.context.currentTime);
-                                        } else if (typeof volume.volume.value !== 'undefined') {
-                                            volume.volume.value = volumeValue;
-                                        }
-                                    } catch (error) {
-                                        console.error(`Error setting volume for drum ${name}:`, error);
-                    }
-                }
-            });
-                        } else if (synth.volume) {
-                            // Handle regular synth volume
-                            try {
-                                if (typeof synth.volume.setValueAtTime === 'function') {
-                                    synth.volume.setValueAtTime(volumeValue, Tone.context.currentTime);
-                                } else if (typeof synth.volume.value !== 'undefined') {
-                                    synth.volume.value = volumeValue;
-                                }
-                            } catch (error) {
-                                console.error(`Error setting volume for track ${track.id}:`, error);
-                            }
-                        }
-                    } catch (trackError) {
-                        console.error(`Error updating volume for track ${track.id}:`, trackError);
-                    }
-                });
-            } catch (error) {
-                console.error('Error in updateTrackVolumes:', error);
-            }
-        };
-
-        // Update volumes immediately
-        updateTrackVolumes();
-
-        // Set up an interval to update volumes during playback
-        const intervalId = setInterval(() => {
-            if (isPlaying) {
-                updateTrackVolumes();
-            }
-        }, 100);
-
-        return () => {
-            clearInterval(intervalId);
-        };
-    }, [tracks, isPlaying]);
-
-    // Add back the missing functions
-    const addTrack = () => {
-        if (tracks.length >= 7) {
-            alert('Maximum of 7 tracks reached. Please remove a track before adding a new one.');
-            return;
-        }
-        const newTrack = {
-            id: Date.now(),
-            name: `Track ${tracks.length + 1}`,
-            instrument: 'pluckSynth',
-            notes: [],
-            effects: [],
-            volume: 0
-        };
-        setTracks([...tracks, newTrack]);
-        setSelectedTrack(newTrack.id);
-    };
-
-    const removeTrack = (trackId) => {
-        if (tracks.length > 1) {
-            setTracks(tracks.filter(track => track.id !== trackId));
-            if (selectedTrack === trackId) {
-                setSelectedTrack(tracks[0].id);
-            }
-        }
-    };
-
-    const addEffect = (trackId, effectName) => {
-        if (!trackId || !effectName) return;
-
-        setTracks(tracks.map(track => {
-            if (track.id === trackId) {
-                // Ensure effects is an array
-                const currentEffects = Array.isArray(track.effects) ? track.effects : [];
-                if (!currentEffects.includes(effectName)) {
-                    return {
-                        ...track,
-                        effects: [...currentEffects, effectName]
-                    };
-                }
-            }
-            return track;
-        }));
-    };
-
-    const removeEffect = (trackId, effectName) => {
-        try {
-            // First, clean up the effect instance
-            const effectKey = `${trackId}-${effectName}`;
-            const effect = effectRefs.current[effectKey];
-            if (effect) {
-                try {
-                    effect.dispose();
-                    delete effectRefs.current[effectKey];
-                } catch (error) {
-                    console.error(`Error disposing effect ${effectName}:`, error);
-                }
-            }
-
-            // Then update the track's effects array
-            setTracks(tracks.map(track => {
-                if (track.id === trackId) {
-                    // Ensure effects is an array before filtering
-                    const currentEffects = Array.isArray(track.effects) ? track.effects : [];
-                    return {
-                        ...track,
-                        effects: currentEffects.filter(effect => effect !== effectName)
-                    };
-                }
-                return track;
-            }));
-
-            // Reconnect the synth to destination if no effects left
-            const track = tracks.find(t => t.id === trackId);
-            if (track) {
-                const synth = synthRefs.current[trackId];
-                if (synth) {
-                    const remainingEffects = Array.isArray(track.effects) ? 
-                        track.effects.filter(effect => effect !== effectName) : 
-                        [];
-                    
-                    if (remainingEffects.length === 0) {
-                        try {
-                            synth.disconnect();
-                            synth.connect(Tone.getDestination());
-                        } catch (error) {
-                            console.error('Error reconnecting synth:', error);
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Error removing effect:', error);
-        }
-    };
-
-    // Update drum volumes with proper timing
-    useEffect(() => {
-        const updateDrumVolumes = () => {
-            tracks.forEach(track => {
-                const synth = synthRefs.current[track.id];
-                if (synth && INSTRUMENTS[track.instrument]?.isDrum) {
-                    Object.entries(drumVolumes).forEach(([drumName, volume]) => {
-                        try {
-                            if (synth.volumes && synth.volumes[drumName]) {
-                                synth.volumes[drumName].volume.value = volume;
-                            }
-                        } catch (error) {
-                            console.error(`Error updating ${drumName} volume:`, error);
-                        }
-                    });
-                }
-            });
-        };
-
-        updateDrumVolumes();
-    }, [drumVolumes, tracks]);
-
-    // Add error boundary for audio initialization
-    const initializeAudio = useCallback(async () => {
-        try {
-            if (Tone.context.state !== 'running') {
-                await Tone.start();
-            }
-            return true;
-        } catch (error) {
-            console.error('Error initializing audio:', error);
-            return false;
-        }
-    }, []);
-
-    // Update play button click handler to handle errors
     const handlePlayButtonClick = useCallback(async () => {
         try {
             console.log('Play button clicked');
@@ -2449,17 +1402,12 @@ export default function MusicMaker() {
 
     useEffect(() => {
         // Initialize AudioContext on component mount
-        const initAudioContext = () => {
-            if (!audioContext) {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                setAudioContext(ctx);
-            }
-        };
+        initializeAudioContext();
 
         // Add event listener for user interaction
         const handleUserInteraction = () => {
-            if (audioContext && audioContext.state === 'suspended') {
-                audioContext.resume();
+            if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+                audioContextRef.current.resume();
             }
         };
 
@@ -2469,16 +1417,9 @@ export default function MusicMaker() {
         return () => {
             document.removeEventListener('click', handleUserInteraction);
             document.removeEventListener('keydown', handleUserInteraction);
+            cleanupAudioContext();
         };
-    }, [audioContext]);
-
-    const handlePlay = () => {
-        if (!audioContext) {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            setAudioContext(ctx);
-        }
-        setIsPlaying(true);
-    };
+    }, [initializeAudioContext, cleanupAudioContext]);
 
     // Add cleanup for effects when component unmounts or track changes
     useEffect(() => {
@@ -2631,10 +1572,10 @@ export default function MusicMaker() {
             }
 
             // Clean up audio context if it exists
-            if (audioContext) {
+            if (audioContextRef.current) {
                 try {
-                    if (audioContext.state !== 'closed') {
-                        audioContext.close();
+                    if (audioContextRef.current.state !== 'closed') {
+                        audioContextRef.current.close();
                     }
                 } catch (error) {
                     console.error('Error closing audio context:', error);
@@ -2773,7 +1714,7 @@ export default function MusicMaker() {
                     <FaPlus /> Add Track
                 </button>
                 <button
-                    onClick={exportToMP3}
+                    onClick={handleExport}
                     disabled={isExporting || tracks.every(track => track.notes.length === 0)}
                     className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-700 flex items-center gap-2"
                 >
