@@ -2,18 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, db } from '@/utils/firebase-admin';
 import { doc, getDoc } from 'firebase/firestore';
 
-type RouteParams = {
-  params: {
-    uid: string;
-  };
-};
-
 export async function GET(
   request: NextRequest,
-  context: RouteParams
+  { params }: { params: { uid: string } }
 ) {
   try {
-    const { uid } = context.params;
+    const { uid } = params;
     
     // Get the authorization header
     const authHeader = request.headers.get('Authorization');
