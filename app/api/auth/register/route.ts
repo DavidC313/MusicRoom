@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import clientPromise from '@/lib/mongodb';
+import { db } from '@/lib/firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 export async function POST(request: Request) {
   try {
@@ -14,32 +15,24 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('Connecting to MongoDB...');
-    const client = await clientPromise;
-    console.log('Connected to MongoDB');
-    
-    const db = client.db('musicroom');
-    console.log('Using database: musicroom');
-    
     // Check if user already exists
     console.log('Checking for existing user...');
-    const existingUser = await db.collection('users').findOne({ uid });
-    if (existingUser) {
-      console.log('User already exists:', existingUser);
+    const userDoc = await getDoc(doc(db, 'users', uid));
+    if (userDoc.exists()) {
+      console.log('User already exists');
       return NextResponse.json(
         { error: 'User already exists' },
         { status: 409 }
       );
     }
 
-    // Insert new user
-    console.log('Inserting new user...');
-    const result = await db.collection('users').insertOne({
-      uid,
+    // Create new user document
+    console.log('Creating new user document...');
+    await setDoc(doc(db, 'users', uid), {
       email,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     });
-    console.log('User inserted successfully:', result.insertedId);
+    console.log('User document created successfully');
 
     return NextResponse.json({ 
       message: 'User registered successfully',
@@ -49,10 +42,9 @@ export async function POST(request: Request) {
     console.error('API registration error:', {
       message: error.message,
       stack: error.stack,
-      name: error.name
     });
     return NextResponse.json(
-      { error: error.message || 'Failed to register user' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
