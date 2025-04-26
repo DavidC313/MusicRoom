@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, MongoClientOptions, WriteConcern } from 'mongodb';
 
 
 // error handling
@@ -7,9 +7,9 @@ if (!process.env.MONGODB_URI) {
 }
 
 const uri = process.env.MONGODB_URI;
-const options = {
+const options: MongoClientOptions = {
   retryWrites: true,
-  w: 'majority',
+  writeConcern: { w: 'majority' },
 };
 
 let client;

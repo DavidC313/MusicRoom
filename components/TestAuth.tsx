@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
 import { auth } from '@/lib/firebase';
 
 export default function TestAuth() {
@@ -16,12 +17,16 @@ export default function TestAuth() {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       console.log('Success:', result.user.email);
     } catch (error) {
-      console.error('Detailed error:', {
-        error,
-        message: error.message,
-        code: error.code,
-        stack: error.stack
-      });
+      if (error instanceof FirebaseError) {
+        console.error('Detailed error:', {
+          error,
+          message: error.message,
+          code: error.code,
+          stack: error.stack
+        });
+      } else {
+        console.error('Unknown error:', error);
+      }
     }
   };
 

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth, db } from '@/utils/firebase-admin';
-import { getAuth } from 'firebase-admin/auth';
+import { auth } from '@/lib/firebase-admin';
 
 export async function GET(request: Request) {
     try {
@@ -18,7 +17,7 @@ export async function GET(request: Request) {
         }
 
         // Get all users from Firebase Auth
-        const listUsersResult = await getAuth().listUsers();
+        const listUsersResult = await auth.listUsers();
         const users = listUsersResult.users.map(user => ({
             uid: user.uid,
             email: user.email,

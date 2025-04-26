@@ -8,7 +8,28 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Image from 'next/image';
 import Link from 'next/link';
 import { FaInstagram, FaTwitter, FaSoundcloud, FaSpotify, FaYoutube, FaLastfm } from 'react-icons/fa';
+import { IconType } from 'react-icons';
 import Navbar from '@/components/Navbar';
+
+// Define social media icon map
+const socialMediaIcons: { [key: string]: IconType } = {
+    instagram: FaInstagram,
+    twitter: FaTwitter,
+    soundcloud: FaSoundcloud,
+    spotify: FaSpotify,
+    youtube: FaYoutube,
+    lastfm: FaLastfm
+};
+
+// Define social media colors
+const socialMediaColors: { [key: string]: string } = {
+    instagram: 'text-pink-500 hover:text-pink-400',
+    twitter: 'text-blue-400 hover:text-blue-300',
+    soundcloud: 'text-orange-500 hover:text-orange-400',
+    spotify: 'text-green-500 hover:text-green-400',
+    youtube: 'text-red-500 hover:text-red-400',
+    lastfm: 'text-red-600 hover:text-red-500'
+};
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
@@ -336,28 +357,13 @@ export default function ProfilePage() {
                                 <h2 className="text-lg font-medium text-white">Social Media Links</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {Object.entries(profileData.socialMedia).map(([platform, username]) => {
-                                        const Icon = {
-                                            instagram: FaInstagram,
-                                            twitter: FaTwitter,
-                                            soundcloud: FaSoundcloud,
-                                            spotify: FaSpotify,
-                                            youtube: FaYoutube,
-                                            lastfm: FaLastfm
-                                        }[platform];
-
-                                        const colors = {
-                                            instagram: 'text-pink-500 hover:text-pink-400',
-                                            twitter: 'text-blue-400 hover:text-blue-300',
-                                            soundcloud: 'text-orange-500 hover:text-orange-400',
-                                            spotify: 'text-green-500 hover:text-green-400',
-                                            youtube: 'text-red-500 hover:text-red-400',
-                                            lastfm: 'text-red-600 hover:text-red-500'
-                                        }[platform];
+                                        const IconComponent = socialMediaIcons[platform];
+                                        const colors = socialMediaColors[platform];
 
                                         return (
                                             <div key={platform} className="flex items-center space-x-2">
                                                 <div className={`flex items-center space-x-2 ${!hasSavedChanges ? 'opacity-50' : ''}`}>
-                                                    <Icon className={`w-5 h-5 ${colors}`} />
+                                                    <IconComponent className={`w-5 h-5 ${colors}`} />
                                                     <input
                                                         type="text"
                                                         placeholder={`${platform.charAt(0).toUpperCase() + platform.slice(1)} username`}
@@ -416,23 +422,27 @@ export default function ProfilePage() {
                                         <label htmlFor="streamingPlatforms" className="block text-sm font-medium text-gray-300">
                                             Preferred Streaming Platforms
                                         </label>
-                                        <input
-                                            type="text"
+                                        <textarea
                                             id="streamingPlatforms"
                                             value={profileData.musicalPreferences.streamingPlatforms}
                                             onChange={(e) => handleMusicalPreferencesChange('streamingPlatforms', e.target.value)}
+                                            rows={2}
                                             className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="Spotify, Apple Music, etc."
+                                            placeholder="List your preferred streaming platforms..."
                                         />
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex justify-end">
+                            <div className="flex justify-end space-x-4">
                                 <button
                                     type="submit"
                                     disabled={isSaving}
-                                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                                    className={`px-4 py-2 rounded-md text-white font-medium ${
+                                        isSaving
+                                            ? 'bg-blue-500/50 cursor-not-allowed'
+                                            : 'bg-blue-500 hover:bg-blue-400'
+                                    }`}
                                 >
                                     {isSaving ? 'Saving...' : 'Save Changes'}
                                 </button>

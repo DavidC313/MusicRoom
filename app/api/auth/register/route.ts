@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase-admin';
 
 export async function POST(request: Request) {
   try {
@@ -21,12 +19,12 @@ export async function POST(request: Request) {
     const client = await clientPromise;
     console.log('Connected to MongoDB');
     
-    const db = client.db('musicroom');
+    const mongoDb = client.db('musicroom');
     console.log('Using database: musicroom');
     
     // Check if user already exists
     console.log('Checking for existing user...');
-    const existingUser = await db.collection('users').findOne({ email });
+    const existingUser = await mongoDb.collection('users').findOne({ email });
     if (existingUser) {
       console.log('User already exists:', existingUser);
       return NextResponse.json(
@@ -35,20 +33,31 @@ export async function POST(request: Request) {
       );
     }
 
-    // Insert new user
-    console.log('Inserting new user...');
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
+    // Create new user in Firebase Auth
+    console.log('Creating new user in Firebase Auth...');
+    const userRecord = await auth.createUser({
+      email,
+      password,
+      displayName: username,
+    });
     
     // Create user document in Firestore
-    await setDoc(doc(db, 'users', user.uid), {
+    console.log('Creating user document in Firestore...');
+    await db.collection('users').doc(userRecord.uid).set({
       email,
       username,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
 
-    return NextResponse.json({ success: true, user: { uid: user.uid, email, username } });
+    return NextResponse.json({ 
+      success: true, 
+      user: { 
+        uid: userRecord.uid, 
+        email, 
+        username 
+      } 
+    });
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error('API registration error:', {
