@@ -1,41 +1,13 @@
 'use client';
 
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Head from 'next/head';
 import MusicMaker from '@/components/MusicMaker';
-import Image from 'next/image';
-import { useState, useEffect } from 'react';
 import Navbar from '@/components/Navbar';
 
 export default function MusicRoom() {
-    const { user, logout } = useAuth();
-    const router = useRouter();
-    const [profileImage, setProfileImage] = useState('');
-
-    useEffect(() => {
-        if (user) {
-            fetchProfileData();
-        }
-    }, [user]);
-
-    const fetchProfileData = async () => {
-        try {
-            const response = await fetch(`/api/users/${user?.uid}`, {
-                headers: {
-                    'Authorization': `Bearer ${await user?.getIdToken()}`
-                }
-            });
-            if (!response.ok) {
-                throw new Error('Failed to fetch profile data');
-            }
-            const data = await response.json();
-            setProfileImage(data.profileImage);
-        } catch (error) {
-            console.error('Error fetching profile:', error);
-        }
-    };
+    const { user } = useAuth();
 
     if (!user) {
         return (

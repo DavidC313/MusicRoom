@@ -1,34 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import MusicControls from '@/components/MusicControls';
-import MusicMaker from '@/components/MusicMaker';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
-import TestAuth from '@/components/TestAuth';
 import Login from '@/components/Login';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import Head from 'next/head';
+import MusicControls from '../components/MusicControls';
+import Navbar from '@/components/Navbar';
 
 export default function Home() {
-    const { user, logout, loading } = useAuth();
+    const { user, loading } = useAuth();
     const router = useRouter();
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [tempo, setTempo] = useState(120);
-    const [volume, setVolume] = useState(50);
-    const [selectedTrack, setSelectedTrack] = useState(null);
-    const [tracks, setTracks] = useState([]);
-    const [isLooping, setIsLooping] = useState(false);
-
-    const playSequence = () => {
-        // Implement playback logic
-        console.log('Playing sequence');
-    };
-
-    const cleanupAudioResources = () => {
-        // Implement cleanup logic
-        console.log('Cleaning up audio resources');
-    };
 
     useEffect(() => {
         if (user && !loading) {
@@ -52,33 +34,17 @@ export default function Home() {
                     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
                 </Head>
 
-                <div className="container mx-auto px-4 py-8">
-                    <main className="flex flex-col items-center justify-center min-h-screen p-6">
-                        <MusicControls 
-                            isPlaying={isPlaying}
-                            setIsPlaying={setIsPlaying}
-                            tempo={tempo}
-                            setTempo={setTempo}
-                            volume={volume}
-                            setVolume={setVolume}
-                            selectedTrack={selectedTrack}
-                            setSelectedTrack={setSelectedTrack}
-                            tracks={tracks}
-                            setTracks={setTracks}
-                            isLooping={isLooping}
-                            setIsLooping={setIsLooping}
-                            playSequence={playSequence}
-                            cleanupAudioResources={cleanupAudioResources}
-                        />
-                        <p className="text-white">Welcome, {user.email}</p>
-                        <button
-                            onClick={logout}
-                            className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                        >
-                            Logout
-                        </button>
-                    </main>
-                </div>
+                <main className="min-h-screen bg-gray-900">
+                    <Navbar />
+                    <div className="container mx-auto px-4 py-8">
+                        <h1 className="text-4xl font-bold text-white text-center mb-8">
+                            Welcome to Music Room
+                        </h1>
+                        <div className="max-w-4xl mx-auto">
+                    <MusicControls />
+                        </div>
+                    </div>
+                </main>
             </div>
         );
     }

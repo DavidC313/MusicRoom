@@ -5,40 +5,20 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
+import { FaSignOutAlt } from 'react-icons/fa';
 
 export default function Navbar() {
-    const { user, logout, isAdmin } = useAuth();
+    const { user, logout } = useAuth();
     const router = useRouter();
-    const [profileImage, setProfileImage] = useState('/default-profile.png');
+    const [isAdmin, setIsAdmin] = useState(false);
 
     useEffect(() => {
         if (user) {
-            fetchProfileData();
+            // Check if user is admin based on email or UID
+            const isUserAdmin = user.email === 'admin@admin.com' || user.uid === 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2';
+            setIsAdmin(isUserAdmin);
         }
     }, [user]);
-
-    const fetchProfileData = async () => {
-        if (!user) return;
-        
-        try {
-            const token = await user.getIdToken();
-            const response = await fetch(`/api/users/${user.uid}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error('Failed to fetch profile data');
-            }
-            
-            const data = await response.json();
-            setProfileImage(data.profileImage || '/default-profile.png');
-        } catch (error) {
-            console.error('Error fetching profile:', error);
-            setProfileImage('/default-profile.png');
-        }
-    };
 
     const handleLogout = async () => {
         try {
@@ -52,45 +32,45 @@ export default function Navbar() {
     return (
         <header className="bg-gray-800 p-4 flex justify-between items-center border-b border-gray-700">
             <div className="flex items-center space-x-4">
-                <Link href="/music-room" className="text-blue-400 text-xl font-bold">
+                <Link href="/music-room" className="text-blue-400 text-xl font-bold hover:text-blue-300 transition-colors">
                     Music Room
                 </Link>
-            </div>
-            
-            <div className="flex items-center space-x-6">
-                {user ? (
-                    <>
-                        <Link href="/profile" className="text-gray-300 hover:text-white transition-colors">
-                            Profile
-                        </Link>
-                        {isAdmin && (
-                            <Link href="/admin" className="text-gray-300 hover:text-white transition-colors">
-                                Admin
-                            </Link>
-                        )}
-                        <div className="flex items-center space-x-3">
-                            <div className="relative w-8 h-8">
-                                <Image
-                                    src={profileImage}
-                                    alt="Profile"
-                                    fill
-                                    className="rounded-full object-cover"
-                                    onError={() => setProfileImage('/default-profile.png')}
-                                />
-                            </div>
-                            <button
-                                onClick={handleLogout}
-                                className="text-gray-300 hover:text-white transition-colors px-3 py-1 rounded hover:bg-gray-700"
-                            >
-                                Logout
-                            </button>
-                        </div>
-                    </>
-                ) : (
-                    <Link href="/register" className="text-gray-300 hover:text-white transition-colors">
-                        Register
+                <Link href="/profile" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
+                    Profile
+                </Link>
+                {isAdmin && (
+                    <Link href="/admin" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
+                        Admin
                     </Link>
                 )}
+            </div>
+            <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-4">
+                    {user?.photoURL ? (
+                            <Image
+                            src={user.photoURL}
+                            alt={user.displayName || 'Profile'}
+                            width={40}
+                            height={40}
+                            className="rounded-full"
+                            style={{ width: 'auto', height: 'auto' }}
+                            />
+                        ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center">
+                            <span className="text-white text-sm">
+                                {user?.email?.[0]?.toUpperCase() || 'U'}
+                            </span>
+                        </div>
+                        )}
+                    <span className="text-white text-sm">{user?.email}</span>
+                    </div>
+                <button 
+                    onClick={handleLogout} 
+                    className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                >
+                    <FaSignOutAlt className="w-4 h-4" />
+                    <span>Sign Out</span>
+                </button>
             </div>
         </header>
     );

@@ -1,513 +1,444 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { storage } from '@/utils/firebase-client';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import Image from 'next/image';
-import Link from 'next/link';
-import { FaInstagram, FaTwitter, FaSoundcloud, FaSpotify, FaYoutube, FaLastfm } from 'react-icons/fa';
+import { FaEdit, FaSave, FaCamera, FaMusic, FaUser } from 'react-icons/fa';
 import Navbar from '@/components/Navbar';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import Image from 'next/image';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getAuth, updateProfile } from 'firebase/auth';
 
-interface ProfileData {
-    displayName: string;
-    aboutMe: string;
-    favoriteGenres: string;
-    instruments: string;
-    profileImage: string;
-    socialMedia: {
-        [key: string]: string;
-    };
-    musicalPreferences: {
-        favoriteArtists: string;
-        influences: string;
-        streamingPlatforms: string;
-    };
-    lastLogin: string;
-    lastUpdate: string;
-}
+const musicGenres = [
+  'Pop', 'Rock', 'Rap', 'Electronic'
+];
 
-export default function ProfilePage() {
-    const { user, loading, logout } = useAuth();
+export default function Profile() {
+  const { user } = useAuth();
     const router = useRouter();
-    const [profileData, setProfileData] = useState<ProfileData>({
+  const fileInputRef = useRef<HTMLInputElement>(null);
+    const [profileData, setProfileData] = useState({
         displayName: '',
+    email: '',
+    photoURL: '',
         aboutMe: '',
-        favoriteGenres: '',
-        instruments: '',
-        profileImage: '',
-        socialMedia: {
+    favoriteArtists: '',
+    musicGenres: [] as string[],
+    socialLinks: {
+      twitter: '',
+      github: '',
+      linkedin: '',
             instagram: '',
-            twitter: '',
-            soundcloud: '',
-            spotify: '',
-            youtube: '',
-            lastfm: ''
-        },
-        musicalPreferences: {
-            favoriteArtists: '',
-            influences: '',
-            streamingPlatforms: ''
-        },
-        lastLogin: new Date().toISOString(),
-        lastUpdate: new Date().toISOString()
+      facebook: '',
+      youtube: ''
+    }
     });
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState(0);
-    const [error, setError] = useState('');
-    const [hasSavedChanges, setHasSavedChanges] = useState(false);
-    const [isEditing, setIsEditing] = useState(false);
-
-    const socialPlatforms = {
-        spotify: { icon: FaSpotify, color: 'text-green-500' },
-        soundcloud: { icon: FaSoundcloud, color: 'text-orange-500' },
-        youtube: { icon: FaYoutube, color: 'text-red-500' },
-        instagram: { icon: FaInstagram, color: 'text-pink-500' }
-    };
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
     useEffect(() => {
-        if (!loading && !user) {
+    if (!user) {
             router.push('/login');
+      return;
         }
-    }, [user, loading, router]);
-
-    useEffect(() => {
-        if (user) {
-            fetchProfileData();
-        }
-    }, [user]);
 
     const fetchProfileData = async () => {
         try {
-            const response = await fetch(`/api/users/${user?.uid}`, {
+        setLoading(true);
+        const token = await user.getIdToken();
+        const response = await fetch(`/api/users/${user.uid}`, {
                 headers: {
-                    'Authorization': `Bearer ${await user?.getIdToken()}`
-                }
+            Authorization: `Bearer ${token}`,
+          },
             });
+
             if (!response.ok) {
                 throw new Error('Failed to fetch profile data');
             }
+
             const data = await response.json();
-            
-            // Ensure social media and musical preferences objects are initialized
-            const profileData = {
+        setProfileData(prev => ({
+          ...prev,
                 ...data,
-                socialMedia: {
-                    instagram: data.socialMedia?.instagram || '',
-                    twitter: data.socialMedia?.twitter || '',
-                    soundcloud: data.socialMedia?.soundcloud || '',
-                    spotify: data.socialMedia?.spotify || '',
-                    youtube: data.socialMedia?.youtube || '',
-                    lastfm: data.socialMedia?.lastfm || ''
-                },
-                musicalPreferences: {
-                    favoriteArtists: data.musicalPreferences?.favoriteArtists || '',
-                    influences: data.musicalPreferences?.influences || '',
-                    streamingPlatforms: data.musicalPreferences?.streamingPlatforms || ''
-                },
-                lastLogin: data.lastLogin || new Date().toISOString(),
-                lastUpdate: data.lastUpdate || new Date().toISOString()
-            };
-            
-            setProfileData(profileData);
-        } catch (error) {
-            console.error('Error fetching profile:', error);
-            setError('Failed to load profile data');
+          displayName: data.displayName || user.displayName || '',
+          email: data.email || user.email || '',
+          photoURL: data.photoURL || user.photoURL || '',
+          aboutMe: data.aboutMe || '',
+          favoriteArtists: data.favoriteArtists || '',
+          musicGenres: data.musicGenres || [],
+          socialLinks: data.socialLinks || {
+            twitter: '',
+            github: '',
+            linkedin: '',
+            instagram: '',
+            facebook: '',
+            youtube: ''
+          }
+        }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load profile');
         } finally {
-            setIsLoading(false);
+        setLoading(false);
         }
     };
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    fetchProfileData();
+  }, [user, router]);
 
-        // Validate file type
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validate file type and size
         if (!file.type.startsWith('image/')) {
             setError('Please upload an image file');
             return;
         }
 
-        // Validate file size (max 5MB)
-        if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
             setError('Image size should be less than 5MB');
             return;
         }
 
         try {
-            setIsSaving(true);
-            setError('');
-            setUploadProgress(0);
-
-            // Generate a unique filename
-            const timestamp = Date.now();
-            const fileExtension = file.name.split('.').pop();
-            const fileName = `${user?.uid}_${timestamp}.${fileExtension}`;
-
-            // Create a storage reference
-            const storageRef = ref(storage, `profile-images/${fileName}`);
+      setUploadingPhoto(true);
+      setError(null);
+      
+      const storage = getStorage();
+      const storageRef = ref(storage, `profile-photos/${user.uid}/${file.name}`);
             
             // Upload the file
             const snapshot = await uploadBytes(storageRef, file);
+      console.log('Uploaded file:', snapshot);
             
             // Get the download URL
-            const downloadURL = await getDownloadURL(snapshot.ref);
-            
-            // Update profile with new image URL
-            const updatedProfile = { ...profileData, profileImage: downloadURL };
-            await updateProfile(updatedProfile);
-            
-            setProfileData(updatedProfile);
-            setUploadProgress(100);
-        } catch (error) {
-            console.error('Error uploading image:', error);
-            setError('Failed to upload image. Please try again.');
+      const photoURL = await getDownloadURL(snapshot.ref);
+      console.log('Download URL:', photoURL);
+
+      // Update Firebase Auth profile using the auth instance
+      const auth = getAuth();
+      await updateProfile(auth.currentUser!, { photoURL });
+      console.log('Updated Firebase Auth profile');
+
+      // Update local state
+      setProfileData(prev => ({ ...prev, photoURL }));
+      
+      // Also update the user document in Firestore
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/users/${user.uid}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ photoURL }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile in database');
+      }
+
+    } catch (err) {
+      console.error('Photo upload error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to upload photo. Please try again.');
         } finally {
-            setIsSaving(false);
+      setUploadingPhoto(false);
         }
     };
 
-    const updateProfile = async (data: typeof profileData) => {
-        try {
-            const response = await fetch(`/api/users/${user?.uid}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${await user?.getIdToken()}`
-                },
-                body: JSON.stringify(data)
-            });
-            if (!response.ok) {
-                throw new Error('Failed to update profile');
-            }
-        } catch (error) {
-            console.error('Error updating profile:', error);
-            setError('Failed to update profile');
-            throw error;
-        }
-    };
+  const handleSave = async () => {
+    if (!user) return;
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSaving(true);
-        setError('');
-        try {
-            await updateProfile(profileData);
-            setHasSavedChanges(true);
-        } catch (error) {
-            // Error already handled in updateProfile
-        } finally {
-            setIsSaving(false);
-        }
-    };
+    try {
+      setLoading(true);
+      const token = await user.getIdToken();
+      
+      // Update Firebase Auth profile first
+      const auth = getAuth();
+      await updateProfile(auth.currentUser!, {
+        displayName: profileData.displayName
+      });
+      console.log('Updated Firebase Auth profile');
 
-    const handleSocialMediaChange = (platform: string, value: string) => {
-        setProfileData({
-            ...profileData,
-            socialMedia: {
-                ...profileData.socialMedia,
-                [platform]: value
-            }
-        });
-        setHasSavedChanges(false);
-    };
+      // Update MongoDB document
+      const updateData = {
+        displayName: profileData.displayName,
+        aboutMe: profileData.aboutMe,
+        favoriteArtists: profileData.favoriteArtists,
+        musicGenres: profileData.musicGenres,
+        socialLinks: profileData.socialLinks
+      };
 
-    const handleMusicalPreferencesChange = (field: string, value: string) => {
-        setProfileData({
-            ...profileData,
-            musicalPreferences: {
-                ...profileData.musicalPreferences,
-                [field]: value
-            }
-        });
-        setHasSavedChanges(false);
-    };
+      const response = await fetch(`/api/users/${user.uid}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(updateData),
+      });
 
-    const getSocialMediaUrl = (platform: string, username: string) => {
-        const urls: { [key: string]: string } = {
-            instagram: `https://instagram.com/${username}`,
-            twitter: `https://twitter.com/${username}`,
-            soundcloud: `https://soundcloud.com/${username}`,
-            spotify: `https://open.spotify.com/user/${username}`,
-            youtube: `https://youtube.com/${username}`,
-            lastfm: `https://last.fm/user/${username}`
-        };
-        return urls[platform] || '#';
-    };
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update profile');
+      }
 
-    const handleInputChange = (field: string, value: string) => {
-        setProfileData(prev => ({
-            ...prev,
-            [field]: value
-        }));
-        setHasSavedChanges(false);
-    };
+      setIsEditing(false);
+      setError(null); // Clear any previous errors
+    } catch (err) {
+      console.error('Profile update error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const handleSocialLinkChange = (platform: string, value: string) => {
-        setProfileData(prev => ({
-            ...prev,
-            socialMedia: {
-                ...prev.socialMedia,
-                [platform]: value
-            }
-        }));
-        setHasSavedChanges(false);
-    };
-
-    const handleSave = async () => {
-        if (!user) return;
-
-        try {
-            const docRef = doc(db, 'users', user.uid);
-            await updateDoc(docRef, {
-                displayName: profileData.displayName,
-                aboutMe: profileData.aboutMe,
-                favoriteGenres: profileData.favoriteGenres,
-                instruments: profileData.instruments,
-                socialMedia: profileData.socialMedia,
-                musicalPreferences: profileData.musicalPreferences,
-                updatedAt: new Date().toISOString()
-            });
-            setHasSavedChanges(true);
-            setIsEditing(false);
-        } catch (error) {
-            console.error('Error updating profile:', error);
-        }
-    };
-
-    if (loading || isLoading) {
-        return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center">
+              <p className="text-xl text-gray-300">Loading...</p>
             </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (error) {
+        return (
+      <>
+        <Navbar />
+        <div className="min-h-screen bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center">
+              <p className="text-xl text-red-500">{error}</p>
+            </div>
+          </div>
+        </div>
+      </>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-900">
+    <>
             <Navbar />
-            <div className="py-12 px-4 sm:px-6 lg:px-8">
-                <div className="max-w-3xl mx-auto space-y-6">
-                    <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
-                        <h1 className="text-2xl font-bold text-white mb-6">Profile Settings</h1>
-                        
-                        {error && (
-                            <div className="mb-4 p-4 bg-red-900/50 text-red-300 rounded-md border border-red-700">
-                                {error}
+      <div className="min-h-screen bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="bg-gray-800 shadow rounded-lg overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white">Profile</h2>
+                <div className="flex space-x-4">
+                  {isEditing ? (
+                    <button
+                      onClick={handleSave}
+                      disabled={loading}
+                      className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                    >
+                      <FaSave className="mr-2" />
+                      Save
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                    >
+                      <FaEdit className="mr-2" />
+                      Edit
+                    </button>
+                  )}
+                </div>
+                            </div>
+
+              <div className="space-y-6">
+                {/* Profile Picture Section */}
+                <div className="flex items-center">
+                    <div className="relative">
+                        {profileData.photoURL ? (
+                            <Image
+                                src={profileData.photoURL}
+                                alt={profileData.displayName || 'Profile'}
+                                width={100}
+                                height={100}
+                                className="rounded-full"
+                                priority
+                                style={{ width: 'auto', height: 'auto' }}
+                            />
+                        ) : (
+                            <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center">
+                                <span className="text-3xl text-white">
+                                    {profileData.email?.[0]?.toUpperCase() || 'U'}
+                                </span>
                             </div>
                         )}
-
-                        <form onSubmit={handleSubmit} className="space-y-6">
-                            <div className="flex items-center space-x-6">
-                                <div className="relative">
-                                    {profileData.profileImage ? (
-                                        <Image
-                                            src={profileData.profileImage}
-                                            alt="Profile"
-                                            width={128}
-                                            height={128}
-                                            className="rounded-full object-cover border-2 border-gray-700"
-                                            priority
-                                        />
-                                    ) : (
-                                        <div className="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
-                                            <Image
-                                                src="/images/default-profile.svg"
-                                                alt="Default Profile"
-                                                width={128}
-                                                height={128}
-                                                className="rounded-full object-cover"
-                                                priority
-                                            />
-                                        </div>
-                                    )}
-                                    <label className="absolute bottom-0 right-0 bg-gray-800 rounded-full p-2 cursor-pointer hover:bg-gray-700 border border-gray-600">
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={handleImageUpload}
-                                            className="hidden"
-                                        />
-                                        <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                    </label>
-                                </div>
-                                <div>
-                                    <h2 className="text-lg font-medium text-white">Profile Picture</h2>
-                                    <p className="text-sm text-gray-400">Upload a new profile picture</p>
-                                    {uploadProgress > 0 && uploadProgress < 100 && (
-                                        <div className="mt-2 w-full bg-gray-700 rounded-full h-2.5">
-                                            <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${uploadProgress}%` }}></div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label htmlFor="displayName" className="block text-sm font-medium text-gray-300">
-                                    Display Name
-                                </label>
+                        {isEditing && (
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={uploadingPhoto}
+                                className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 transition-colors"
+                            >
+                                <FaCamera />
+                            </button>
+                        )}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handlePhotoUpload}
+                            accept="image/*"
+                            className="hidden"
+                        />
+                    </div>
+                    <div className="ml-6">
+                        {isEditing ? (
+                            <div className="space-y-2">
                                 <input
                                     type="text"
-                                    id="displayName"
                                     value={profileData.displayName}
-                                    onChange={(e) => handleInputChange('displayName', e.target.value)}
-                                    className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    onChange={(e) => setProfileData(prev => ({ ...prev, displayName: e.target.value }))}
+                                    placeholder="Enter your name"
+                                    className="w-full bg-gray-700 text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
+                                <p className="text-sm text-gray-400">This name will appear in the admin dashboard</p>
+                            </div>
+                        ) : (
+                            <>
+                                <h3 className="text-xl font-medium text-white">
+                                    {profileData.displayName || 'Anonymous User'}
+                                </h3>
+                                <p className="text-gray-400">{profileData.email}</p>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* About Me Section */}
+                <div className="border-t border-gray-700 pt-6">
+                  <h4 className="text-lg font-medium text-white mb-4">About Me</h4>
+                  {isEditing ? (
+                    <textarea
+                      value={profileData.aboutMe}
+                      onChange={(e) => setProfileData(prev => ({ ...prev, aboutMe: e.target.value }))}
+                      className="w-full h-32 bg-gray-700 text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Tell us about yourself..."
+                    />
+                  ) : (
+                    <p className="text-gray-300">
+                      {profileData.aboutMe || 'No description provided'}
+                    </p>
+                  )}
                             </div>
 
-                            <div>
-                                <label htmlFor="aboutMe" className="block text-sm font-medium text-gray-300">
-                                    About Me
-                                </label>
+                {/* Favorite Artists Section */}
+                <div className="border-t border-gray-700 pt-6">
+                  <h4 className="text-lg font-medium text-white mb-4">Favorite Artists</h4>
+                  {isEditing ? (
                                 <textarea
-                                    id="aboutMe"
-                                    value={profileData.aboutMe}
-                                    onChange={(e) => handleInputChange('aboutMe', e.target.value)}
-                                    rows={4}
-                                    className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
+                      value={profileData.favoriteArtists}
+                      onChange={(e) => setProfileData(prev => ({ ...prev, favoriteArtists: e.target.value }))}
+                      className="w-full h-24 bg-gray-700 text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="List your favorite artists..."
+                    />
+                  ) : (
+                    <p className="text-gray-300">
+                      {profileData.favoriteArtists || 'No favorite artists listed'}
+                    </p>
+                  )}
                             </div>
 
-                            <div>
-                                <label htmlFor="favoriteGenres" className="block text-sm font-medium text-gray-300">
-                                    Favorite Genres
-                                </label>
-                                <input
-                                    type="text"
-                                    id="favoriteGenres"
-                                    value={profileData.favoriteGenres}
-                                    onChange={(e) => handleInputChange('favoriteGenres', e.target.value)}
-                                    className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
+                {/* Music Genres Section */}
+                <div className="border-t border-gray-700 pt-6">
+                  <h4 className="text-lg font-medium text-white mb-4">Music Genres</h4>
+                  {isEditing ? (
+                    <div className="flex flex-wrap gap-2">
+                      {musicGenres.map((genre) => (
+                        <button
+                          key={genre}
+                          onClick={() => {
+                            setProfileData(prev => ({
+                              ...prev,
+                              musicGenres: prev.musicGenres.includes(genre)
+                                ? prev.musicGenres.filter(g => g !== genre)
+                                : [...prev.musicGenres, genre]
+                            }));
+                          }}
+                          className={`px-3 py-1 rounded-full text-sm ${
+                            profileData.musicGenres.includes(genre)
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          {genre}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {profileData.musicGenres.length > 0 ? (
+                        profileData.musicGenres.map((genre) => (
+                          <span
+                            key={genre}
+                            className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm"
+                          >
+                            {genre}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-gray-400">No genres selected</p>
+                      )}
+                            </div>
+                  )}
                             </div>
 
-                            <div>
-                                <label htmlFor="instruments" className="block text-sm font-medium text-gray-300">
-                                    Instruments
-                                </label>
-                                <input
-                                    type="text"
-                                    id="instruments"
-                                    value={profileData.instruments}
-                                    onChange={(e) => handleInputChange('instruments', e.target.value)}
-                                    className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
-                            </div>
-
-                            {/* Social Media Links */}
-                            <div className="space-y-4">
-                                <h2 className="text-lg font-medium text-white">Social Media Links</h2>
+                {/* Social Links Section */}
+                <div className="border-t border-gray-700 pt-6">
+                  <h4 className="text-lg font-medium text-white mb-4">Social Links</h4>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {Object.entries(socialPlatforms).map(([platform, { icon: Icon, color }]) => {
-                                        return (
+                    {Object.entries(profileData.socialLinks).map(([platform, url]) => (
                                             <div key={platform} className="flex items-center space-x-2">
-                                                <div className={`flex items-center space-x-2 ${!isEditing ? 'opacity-50' : ''}`}>
-                                                    <Icon className={`w-5 h-5 ${color}`} />
+                        <span className="text-gray-300 capitalize w-24">{platform}</span>
+                        {isEditing ? (
                                                     <input
                                                         type="text"
-                                                        placeholder={`${platform.charAt(0).toUpperCase() + platform.slice(1)} username`}
-                                                        value={profileData.socialMedia[platform]}
-                                                        onChange={(e) => handleSocialLinkChange(platform, e.target.value)}
-                                                        className="flex-1 rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            value={url}
+                            onChange={(e) =>
+                              setProfileData(prev => ({
+                                ...prev,
+                                socialLinks: {
+                                  ...prev.socialLinks,
+                                  [platform]: e.target.value
+                                }
+                              }))
+                            }
+                            placeholder={`Enter your ${platform} URL`}
+                            className="flex-1 bg-gray-700 text-white px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                     />
-                                                </div>
-                                                {isEditing && profileData.socialMedia[platform] && (
+                        ) : (
                                                     <a
-                                                        href={getSocialMediaUrl(platform, profileData.socialMedia[platform])}
+                            href={url || '#'}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="ml-2 text-blue-400 hover:text-blue-300"
+                            className={`flex-1 text-blue-400 hover:text-blue-300 ${
+                              !url && 'pointer-events-none text-gray-500'
+                            }`}
                                                     >
-                                                        Visit Profile
+                            {url || 'Not set'}
                                                     </a>
                                                 )}
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Musical Preferences */}
-                            <div className="space-y-4">
-                                <h2 className="text-lg font-medium text-white">Musical Preferences</h2>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label htmlFor="favoriteArtists" className="block text-sm font-medium text-gray-300">
-                                            Favorite Artists
-                                        </label>
-                                        <textarea
-                                            id="favoriteArtists"
-                                            value={profileData.musicalPreferences.favoriteArtists}
-                                            onChange={(e) => handleMusicalPreferencesChange('favoriteArtists', e.target.value)}
-                                            rows={3}
-                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="List your favorite artists..."
-                                        />
-                                    </div>
-                                    <div>
-                                        <label htmlFor="influences" className="block text-sm font-medium text-gray-300">
-                                            Musical Influences
-                                        </label>
-                                        <textarea
-                                            id="influences"
-                                            value={profileData.musicalPreferences.influences}
-                                            onChange={(e) => handleMusicalPreferencesChange('influences', e.target.value)}
-                                            rows={3}
-                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="List your musical influences..."
-                                        />
-                                    </div>
-                                    <div>
-                                        <label htmlFor="streamingPlatforms" className="block text-sm font-medium text-gray-300">
-                                            Preferred Streaming Platforms
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="streamingPlatforms"
-                                            value={profileData.musicalPreferences.streamingPlatforms}
-                                            onChange={(e) => handleMusicalPreferencesChange('streamingPlatforms', e.target.value)}
-                                            className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="Spotify, Apple Music, etc."
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end">
-                                <button
-                                    type="submit"
-                                    disabled={isSaving}
-                                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                                >
-                                    {isSaving ? 'Saving...' : 'Save Changes'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-
-                    {/* Activity Feed */}
-                    <div className="bg-gray-800 shadow-lg rounded-lg p-6 border border-gray-700">
-                        <h2 className="text-xl font-bold text-white mb-4">Activity Feed</h2>
-                        <div className="space-y-4">
-                            <div className="flex items-center space-x-3 text-gray-300">
-                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                <span>Last login: {new Date(profileData.lastLogin).toLocaleString()}</span>
-                            </div>
-                            <div className="flex items-center space-x-3 text-gray-300">
-                                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                                <span>Profile last updated: {new Date(profileData.lastUpdate).toLocaleString()}</span>
+                    ))}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+      </div>
+    </>
     );
 } 

@@ -9,14 +9,23 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); // Clear any previous errors
+    setError('');
+    setLoading(true);
+
+    try {
     const result = await login(email, password);
     if (!result.success) {
       setError(result.message || 'An error occurred during login');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -31,6 +40,7 @@ export default function Login() {
             height={200}
             className="rounded-lg shadow-lg"
             priority
+            style={{ width: 'auto', height: 'auto' }}
           />
           <h1 className="text-4xl font-bold text-white tracking-wide">MusicRoom</h1>
           <p className="text-gray-400 text-sm">Your personal music creation space</p>
@@ -47,6 +57,7 @@ export default function Login() {
               className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Enter your email"
               required
+              disabled={loading}
             />
           </div>
           <div className="space-y-2">
@@ -59,6 +70,7 @@ export default function Login() {
               className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Enter your password"
               required
+              disabled={loading}
             />
           </div>
           {error && (
@@ -68,15 +80,21 @@ export default function Login() {
           )}
           <button 
             type="submit" 
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.02]"
+            disabled={loading}
+            className={`w-full bg-blue-600 text-white font-medium py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.02] ${
+              loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+            }`}
           >
-            Login
+            {loading ? 'Logging in...' : 'Login'}
           </button>
           <div className="text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-gray-400 text-sm">
               Don&apos;t have an account?{' '}
-              <Link href="/register" className="text-blue-500 hover:underline">
-                Register
+              <Link 
+                href="/register" 
+                className="text-blue-500 hover:text-blue-400 font-medium transition-colors"
+              >
+                Create An Account
               </Link>
             </p>
           </div>

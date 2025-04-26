@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import SystemHealthMonitor from '@/components/SystemHealthMonitor';
+import Image from 'next/image';
 
 interface User {
     uid: string;
@@ -22,7 +23,7 @@ export default function AdminPage() {
     const router = useRouter();
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!user) {
@@ -35,21 +36,20 @@ export default function AdminPage() {
             return;
         }
 
-        fetchUsers();
-    }, [user, isAdmin, router]);
-
     const fetchUsers = async () => {
         try {
             console.log('Fetching users...');
-            const token = await user?.getIdToken();
+                const token = await user.getIdToken();
             if (!token) {
                 throw new Error('No authentication token available');
             }
 
             const response = await fetch('/api/users', {
                 headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    cache: 'no-store'
             });
 
             console.log('Response status:', response.status);
@@ -62,13 +62,16 @@ export default function AdminPage() {
             const data = await response.json();
             console.log('Fetched users:', data);
             setUsers(data);
-        } catch (error) {
-            console.error('Error in fetchUsers:', error);
-            setError(error instanceof Error ? error.message : 'Failed to load users');
+            } catch (err) {
+                console.error('Error in fetchUsers:', err);
+                setError(err instanceof Error ? err.message : 'Failed to load users');
         } finally {
             setLoading(false);
         }
     };
+
+        fetchUsers();
+    }, [user, isAdmin, router]);
 
     const handleDeleteUser = async (userId: string) => {
         if (!confirm('Are you sure you want to delete this user?')) {
@@ -84,44 +87,76 @@ export default function AdminPage() {
             const response = await fetch(`/api/users/${userId}`, {
                 method: 'DELETE',
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
                 }
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
+                if (response.status === 403) {
+                    throw new Error('You do not have permission to delete users');
+                } else if (response.status === 404) {
+                    throw new Error('User not found. They may have already been deleted.');
+                } else if (response.status === 500) {
+                    throw new Error('Failed to delete user. Please try again later.');
+                }
                 throw new Error(errorData.error || 'Failed to delete user');
             }
 
             setUsers(users.filter(user => user.uid !== userId));
-        } catch (error) {
-            console.error('Error deleting user:', error);
-            setError(error instanceof Error ? error.message : 'Failed to delete user');
+            setError(null); // Clear any previous errors
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to delete user');
         }
     };
 
+    if (!user || !isAdmin) {
+        return (
+            <div className="min-h-screen bg-gray-900">
+                <Navbar />
+                <div className="container mx-auto px-4 py-8">
+                    <div className="text-center text-white">
+                        <h1 className="text-2xl font-bold">Access Denied</h1>
+                        <p>You do not have permission to access this page.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-900 p-8">
+            <div className="min-h-screen bg-gray-900">
                 <Navbar />
-                <div className="max-w-4xl mx-auto">
-                    <h1 className="text-2xl font-bold text-white mb-8">Loading...</h1>
+                <div className="container mx-auto px-4 py-8">
+                    <div className="text-center text-white">
+                        <h1 className="text-2xl font-bold">Loading...</h1>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen bg-gray-900">
+                <Navbar />
+                <div className="container mx-auto px-4 py-8">
+                    <div className="text-center text-white">
+                        <h1 className="text-2xl font-bold">Error</h1>
+                        <p className="text-red-500">{error}</p>
+                    </div>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-900 p-8">
+        <div className="min-h-screen bg-gray-900">
             <Navbar />
-            <div className="max-w-4xl mx-auto">
-                <h1 className="text-2xl font-bold text-white mb-8">Admin Dashboard</h1>
-                
-                {error && (
-                    <div className="bg-red-500 text-white p-4 rounded-lg mb-4">
-                        {error}
-                    </div>
-                )}
+            <div className="container mx-auto px-4 py-8">
+                <h1 className="text-3xl font-bold text-white mb-8">Admin Dashboard</h1>
 
                 {/* System Health Monitor */}
                 <div className="mb-8">
@@ -129,8 +164,7 @@ export default function AdminPage() {
                     <SystemHealthMonitor />
                 </div>
 
-                <h2 className="text-xl font-semibold text-white mb-4">User Management</h2>
-                <div className="bg-gray-800 rounded-lg overflow-hidden">
+                <div className="bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-700">
                         <thead className="bg-gray-700">
                             <tr>
@@ -156,22 +190,27 @@ export default function AdminPage() {
                                 <tr key={user.uid}>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="flex items-center">
+                                            <div className="flex-shrink-0 h-10 w-10">
                                             {user.photoURL ? (
-                                                <img
-                                                    className="h-8 w-8 rounded-full"
+                                                    <Image
                                                     src={user.photoURL}
-                                                    alt=""
+                                                        alt={user.displayName || 'User'}
+                                                        width={40}
+                                                        height={40}
+                                                        className="rounded-full"
+                                                        style={{ width: '40px', height: '40px', objectFit: 'cover' }}
                                                 />
                                             ) : (
-                                                <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center">
+                                                    <div className="h-10 w-10 rounded-full bg-gray-700 flex items-center justify-center">
                                                     <span className="text-white text-sm">
-                                                        {user.email?.[0]?.toUpperCase()}
+                                                            {user.email?.[0]?.toUpperCase() || 'U'}
                                                     </span>
                                                 </div>
                                             )}
+                                            </div>
                                             <div className="ml-4">
                                                 <div className="text-sm font-medium text-white">
-                                                    {user.displayName || 'No name'}
+                                                    {user.displayName || 'Anonymous User'}
                                                 </div>
                                             </div>
                                         </div>

@@ -1,0 +1,16 @@
+{
+  "name": "MusicRoom",
+  "short_name": "MusicRoom",
+  "description": "Your personal music creation space",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "/musicroom.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+} 
