@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
-import { auth, db } from '@/lib/firebase-admin';
 
 export async function POST(request: Request) {
   try {
     console.log('Starting registration process...');
-    const { email, password, username } = await request.json();
+    const { uid, email } = await request.json();
     
-    if (!email || !password || !username) {
-      console.error('Missing required fields:', { email, password, username });
+    if (!uid || !email) {
+      console.error('Missing required fields:', { uid, email });
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -19,12 +18,12 @@ export async function POST(request: Request) {
     const client = await clientPromise;
     console.log('Connected to MongoDB');
     
-    const mongoDb = client.db('musicroom');
+    const db = client.db('musicroom');
     console.log('Using database: musicroom');
     
     // Check if user already exists
     console.log('Checking for existing user...');
-    const existingUser = await mongoDb.collection('users').findOne({ email });
+    const existingUser = await db.collection('users').findOne({ uid });
     if (existingUser) {
       console.log('User already exists:', existingUser);
       return NextResponse.json(
@@ -33,40 +32,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create new user in Firebase Auth
-    console.log('Creating new user in Firebase Auth...');
-    const userRecord = await auth.createUser({
+    // Insert new user
+    console.log('Inserting new user...');
+    const result = await db.collection('users').insertOne({
+      uid,
       email,
-      password,
-      displayName: username,
+      createdAt: new Date(),
     });
-    
-    // Create user document in Firestore
-    console.log('Creating user document in Firestore...');
-    await db.collection('users').doc(userRecord.uid).set({
-      email,
-      username,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    console.log('User inserted successfully:', result.insertedId);
 
     return NextResponse.json({ 
-      success: true, 
-      user: { 
-        uid: userRecord.uid, 
-        email, 
-        username 
-      } 
+      message: 'User registered successfully',
+      uid 
     });
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      console.error('API registration error:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
-    }
-    return NextResponse.json({ success: false, error: 'An unknown error occurred' }, { status: 400 });
+  } catch (error: any) {
+    console.error('API registration error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    return NextResponse.json(
+      { error: error.message || 'Failed to register user' },
+      { status: 500 }
+    );
   }
 } 

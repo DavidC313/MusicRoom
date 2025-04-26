@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { FirebaseError } from 'firebase/app';
 import { auth } from '@/lib/firebase';
+import { FirebaseError } from 'firebase/app';
 
 export default function TestAuth() {
   const [email, setEmail] = useState('');

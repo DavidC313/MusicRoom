@@ -1,18 +1,22 @@
-import { MongoClient, MongoClientOptions, WriteConcern } from 'mongodb';
+import { MongoClient, MongoClientOptions } from 'mongodb';
 
 
 // error handling
 if (!process.env.MONGODB_URI) {
-  throw new Error('Please add your MongoDB URI to .env.local');
+  throw new Error('Invalid/Missing environment variable: "MONGODB_URI"');
 }
 
 const uri = process.env.MONGODB_URI;
 const options: MongoClientOptions = {
+  maxPoolSize: 10,
+  minPoolSize: 5,
   retryWrites: true,
-  writeConcern: { w: 'majority' },
+  writeConcern: {
+    w: 'majority'
+  }
 };
 
-let client;
+let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
 
 if (process.env.NODE_ENV === 'development') {

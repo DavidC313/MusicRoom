@@ -8,10 +8,10 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { useRouter } from 'next/navigation';
+import { auth } from '@/lib/firebase';
+import { useRouter, usePathname } from 'next/navigation';
 import Cookies from 'js-cookie';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, Firestore, getFirestore } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -28,7 +28,7 @@ const AuthContext = createContext<AuthContextType>({
   register: async () => {},
   login: async () => ({ success: false }),
   logout: async () => {},
-  isAdmin: false,
+  isAdmin: false
 });
 
 const ADMIN_UID = 'XbJ8BBGIJsTTJeaGrMwXilEdOkc2';
@@ -38,73 +38,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    try {
-      const unsubscribe = onAuthStateChanged(auth, async (user) => {
-        console.log('Auth state changed, user:', user);
-        setUser(user);
-        if (user) {
-          const token = await user.getIdToken();
-          Cookies.set('token', token, { expires: 1 }); // Token expires in 1 day
-          // Check if user is admin using UID
-          const isAdminUser = user.uid === ADMIN_UID;
-          console.log('Checking admin status:', {
-            userUid: user.uid,
-            adminUid: ADMIN_UID,
-            isAdmin: isAdminUser
-          });
-          setIsAdmin(isAdminUser);
-        } else {
-          Cookies.remove('token');
-          setIsAdmin(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setUser(user);
+      if (user) {
+        const token = await user.getIdToken();
+        Cookies.set('token', token, { expires: 1 });
+        const isAdminUser = user.uid === ADMIN_UID;
+        setIsAdmin(isAdminUser);
+
+        // Handle protected routes
+        if (pathname === '/' || pathname === '/register') {
+          router.push('/music-room');
         }
-        setLoading(false);
-      });
-      return unsubscribe;
-    } catch (error) {
-      console.error('Auth state change error:', error);
+      } else {
+        Cookies.remove('token');
+        setIsAdmin(false);
+        // Handle public routes
+        if (pathname === '/music-room' || pathname === '/profile') {
+          router.push('/');
+        }
+      }
       setLoading(false);
-    }
-  }, []);
+    });
+
+    return unsubscribe;
+  }, [pathname, router]);
 
   const register = async (email: string, password: string) => {
     try {
-      console.log('Starting registration process');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      console.log('Firebase auth successful, creating user in MongoDB');
       
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: userCredential.user.uid,
-          email: userCredential.user.email,
-        }),
+      // Create user document in Firestore
+      const db = getFirestore();
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        email: userCredential.user.email,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to create user in database');
-      }
 
       console.log('User registered successfully');
     } catch (error: any) {
-      console.error('Registration error in AuthContext:', error);
+      console.error('Registration error:', error);
       throw error;
     }
   };
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; message?: string; isAdmin?: boolean }> => {
+  const login = async (email: string, password: string) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const token = await userCredential.user.getIdToken();
-      Cookies.set('token', token, { expires: 1 }); // Token expires in 1 day
+      Cookies.set('token', token, { expires: 1 });
       const isAdminUser = userCredential.user.uid === ADMIN_UID;
-      console.log('Login admin check:', {
-        userUid: userCredential.user.uid,
-        adminUid: ADMIN_UID,
-        isAdmin: isAdminUser
-      });
       setIsAdmin(isAdminUser);
       router.push('/music-room');
       return { success: true, isAdmin: isAdminUser };
@@ -134,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ user, loading, register, login, logout, isAdmin }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 }

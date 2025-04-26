@@ -8,33 +8,32 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import Image from 'next/image';
 import Link from 'next/link';
 import { FaInstagram, FaTwitter, FaSoundcloud, FaSpotify, FaYoutube, FaLastfm } from 'react-icons/fa';
-import { IconType } from 'react-icons';
 import Navbar from '@/components/Navbar';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
-// Define social media icon map
-const socialMediaIcons: { [key: string]: IconType } = {
-    instagram: FaInstagram,
-    twitter: FaTwitter,
-    soundcloud: FaSoundcloud,
-    spotify: FaSpotify,
-    youtube: FaYoutube,
-    lastfm: FaLastfm
-};
-
-// Define social media colors
-const socialMediaColors: { [key: string]: string } = {
-    instagram: 'text-pink-500 hover:text-pink-400',
-    twitter: 'text-blue-400 hover:text-blue-300',
-    soundcloud: 'text-orange-500 hover:text-orange-400',
-    spotify: 'text-green-500 hover:text-green-400',
-    youtube: 'text-red-500 hover:text-red-400',
-    lastfm: 'text-red-600 hover:text-red-500'
-};
+interface ProfileData {
+    displayName: string;
+    aboutMe: string;
+    favoriteGenres: string;
+    instruments: string;
+    profileImage: string;
+    socialMedia: {
+        [key: string]: string;
+    };
+    musicalPreferences: {
+        favoriteArtists: string;
+        influences: string;
+        streamingPlatforms: string;
+    };
+    lastLogin: string;
+    lastUpdate: string;
+}
 
 export default function ProfilePage() {
     const { user, loading, logout } = useAuth();
     const router = useRouter();
-    const [profileData, setProfileData] = useState({
+    const [profileData, setProfileData] = useState<ProfileData>({
         displayName: '',
         aboutMe: '',
         favoriteGenres: '',
@@ -61,6 +60,14 @@ export default function ProfilePage() {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [error, setError] = useState('');
     const [hasSavedChanges, setHasSavedChanges] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+
+    const socialPlatforms = {
+        spotify: { icon: FaSpotify, color: 'text-green-500' },
+        soundcloud: { icon: FaSoundcloud, color: 'text-orange-500' },
+        youtube: { icon: FaYoutube, color: 'text-red-500' },
+        instagram: { icon: FaInstagram, color: 'text-pink-500' }
+    };
 
     useEffect(() => {
         if (!loading && !user) {
@@ -206,6 +213,7 @@ export default function ProfilePage() {
                 [platform]: value
             }
         });
+        setHasSavedChanges(false);
     };
 
     const handleMusicalPreferencesChange = (field: string, value: string) => {
@@ -216,6 +224,7 @@ export default function ProfilePage() {
                 [field]: value
             }
         });
+        setHasSavedChanges(false);
     };
 
     const getSocialMediaUrl = (platform: string, username: string) => {
@@ -228,6 +237,46 @@ export default function ProfilePage() {
             lastfm: `https://last.fm/user/${username}`
         };
         return urls[platform] || '#';
+    };
+
+    const handleInputChange = (field: string, value: string) => {
+        setProfileData(prev => ({
+            ...prev,
+            [field]: value
+        }));
+        setHasSavedChanges(false);
+    };
+
+    const handleSocialLinkChange = (platform: string, value: string) => {
+        setProfileData(prev => ({
+            ...prev,
+            socialMedia: {
+                ...prev.socialMedia,
+                [platform]: value
+            }
+        }));
+        setHasSavedChanges(false);
+    };
+
+    const handleSave = async () => {
+        if (!user) return;
+
+        try {
+            const docRef = doc(db, 'users', user.uid);
+            await updateDoc(docRef, {
+                displayName: profileData.displayName,
+                aboutMe: profileData.aboutMe,
+                favoriteGenres: profileData.favoriteGenres,
+                instruments: profileData.instruments,
+                socialMedia: profileData.socialMedia,
+                musicalPreferences: profileData.musicalPreferences,
+                updatedAt: new Date().toISOString()
+            });
+            setHasSavedChanges(true);
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Error updating profile:', error);
+        }
     };
 
     if (loading || isLoading) {
@@ -308,7 +357,7 @@ export default function ProfilePage() {
                                     type="text"
                                     id="displayName"
                                     value={profileData.displayName}
-                                    onChange={(e) => setProfileData({ ...profileData, displayName: e.target.value })}
+                                    onChange={(e) => handleInputChange('displayName', e.target.value)}
                                     className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 />
                             </div>
@@ -320,7 +369,7 @@ export default function ProfilePage() {
                                 <textarea
                                     id="aboutMe"
                                     value={profileData.aboutMe}
-                                    onChange={(e) => setProfileData({ ...profileData, aboutMe: e.target.value })}
+                                    onChange={(e) => handleInputChange('aboutMe', e.target.value)}
                                     rows={4}
                                     className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 />
@@ -334,7 +383,7 @@ export default function ProfilePage() {
                                     type="text"
                                     id="favoriteGenres"
                                     value={profileData.favoriteGenres}
-                                    onChange={(e) => setProfileData({ ...profileData, favoriteGenres: e.target.value })}
+                                    onChange={(e) => handleInputChange('favoriteGenres', e.target.value)}
                                     className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 />
                             </div>
@@ -347,7 +396,7 @@ export default function ProfilePage() {
                                     type="text"
                                     id="instruments"
                                     value={profileData.instruments}
-                                    onChange={(e) => setProfileData({ ...profileData, instruments: e.target.value })}
+                                    onChange={(e) => handleInputChange('instruments', e.target.value)}
                                     className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 />
                             </div>
@@ -356,25 +405,22 @@ export default function ProfilePage() {
                             <div className="space-y-4">
                                 <h2 className="text-lg font-medium text-white">Social Media Links</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {Object.entries(profileData.socialMedia).map(([platform, username]) => {
-                                        const IconComponent = socialMediaIcons[platform];
-                                        const colors = socialMediaColors[platform];
-
+                                    {Object.entries(socialPlatforms).map(([platform, { icon: Icon, color }]) => {
                                         return (
                                             <div key={platform} className="flex items-center space-x-2">
-                                                <div className={`flex items-center space-x-2 ${!hasSavedChanges ? 'opacity-50' : ''}`}>
-                                                    <IconComponent className={`w-5 h-5 ${colors}`} />
+                                                <div className={`flex items-center space-x-2 ${!isEditing ? 'opacity-50' : ''}`}>
+                                                    <Icon className={`w-5 h-5 ${color}`} />
                                                     <input
                                                         type="text"
                                                         placeholder={`${platform.charAt(0).toUpperCase() + platform.slice(1)} username`}
-                                                        value={username}
-                                                        onChange={(e) => handleSocialMediaChange(platform, e.target.value)}
+                                                        value={profileData.socialMedia[platform]}
+                                                        onChange={(e) => handleSocialLinkChange(platform, e.target.value)}
                                                         className="flex-1 rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                                     />
                                                 </div>
-                                                {hasSavedChanges && username && (
+                                                {isEditing && profileData.socialMedia[platform] && (
                                                     <a
-                                                        href={getSocialMediaUrl(platform, username)}
+                                                        href={getSocialMediaUrl(platform, profileData.socialMedia[platform])}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="ml-2 text-blue-400 hover:text-blue-300"
@@ -422,27 +468,23 @@ export default function ProfilePage() {
                                         <label htmlFor="streamingPlatforms" className="block text-sm font-medium text-gray-300">
                                             Preferred Streaming Platforms
                                         </label>
-                                        <textarea
+                                        <input
+                                            type="text"
                                             id="streamingPlatforms"
                                             value={profileData.musicalPreferences.streamingPlatforms}
                                             onChange={(e) => handleMusicalPreferencesChange('streamingPlatforms', e.target.value)}
-                                            rows={2}
                                             className="mt-1 block w-full rounded-md bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                            placeholder="List your preferred streaming platforms..."
+                                            placeholder="Spotify, Apple Music, etc."
                                         />
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex justify-end space-x-4">
+                            <div className="flex justify-end">
                                 <button
                                     type="submit"
                                     disabled={isSaving}
-                                    className={`px-4 py-2 rounded-md text-white font-medium ${
-                                        isSaving
-                                            ? 'bg-blue-500/50 cursor-not-allowed'
-                                            : 'bg-blue-500 hover:bg-blue-400'
-                                    }`}
+                                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                                 >
                                     {isSaving ? 'Saving...' : 'Save Changes'}
                                 </button>

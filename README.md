@@ -1,36 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MusicRoom
 
-## Getting Started
+A web-based music creation and composition tool built with Next.js and Tone.js.
 
-First, run the development server:
+## Local Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Testing the Build Locally
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Install serve globally (if not already installed):
+```bash
+npm install -g serve
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Run the test build script:
+```bash
+chmod +x test-build.sh
+./test-build.sh
+```
 
-## Learn More
+3. Test the build locally:
+```bash
+npx serve out
+```
 
-To learn more about Next.js, take a look at the following resources:
+4. Open your browser and navigate to:
+```
+http://localhost:3000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment to GitHub Pages
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Create a new repository on GitHub
+2. Push your code to the main branch
+3. Go to your repository settings
+4. Navigate to "Pages" under "Code and automation"
+5. Under "Build and deployment":
+   - Source: Select "GitHub Actions"
+6. The GitHub Actions workflow will automatically deploy your site when you push to main
 
-## Deploy on Vercel
+## Important Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- The site is configured for static export
+- Audio features require user interaction to initialize (browser security policy)
+- Make sure to test all features locally before deploying
+- The build process generates static files in the `out` directory
+- All routes are pre-rendered at build time
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Troubleshooting
+
+If you encounter any issues:
+
+1. Check the GitHub Actions workflow logs
+2. Ensure all dependencies are correctly listed in package.json
+3. Verify that the Next.js configuration is correct
+4. Make sure the .nojekyll file is present in the root directory
+5. Check the browser console for any errors
+6. Verify that all audio features work after user interaction
+
+## License
+
+MIT
