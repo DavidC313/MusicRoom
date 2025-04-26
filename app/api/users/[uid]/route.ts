@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth, db } from '@/utils/firebase-admin';
 import { doc, getDoc } from 'firebase/firestore';
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { uid: string } }
 ) {
   try {
