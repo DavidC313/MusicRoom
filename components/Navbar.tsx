@@ -28,9 +28,10 @@ export default function Navbar() {
                 throw new Error('Failed to fetch profile data');
             }
             const data = await response.json();
-            setProfileImage(data.profileImage);
+            setProfileImage(data.profileImage || '/default-profile.png');
         } catch (error) {
             console.error('Error fetching profile:', error);
+            setProfileImage('/default-profile.png');
         }
     };
 
@@ -49,48 +50,42 @@ export default function Navbar() {
                 <Link href="/music-room" className="text-blue-400 text-xl font-bold">
                     Music Room
                 </Link>
-                <Link href="/profile" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
-                    Profile
-                </Link>
-                {isAdmin && (
-                    <Link href="/admin" className="text-white text-xl font-bold hover:text-blue-400 transition-colors">
-                        Admin
+            </div>
+            
+            <div className="flex items-center space-x-4">
+                {user ? (
+                    <>
+                        <Link href="/profile" className="text-gray-300 hover:text-white">
+                            Profile
+                        </Link>
+                        {isAdmin && (
+                            <Link href="/admin" className="text-gray-300 hover:text-white">
+                                Admin
+                            </Link>
+                        )}
+                        <div className="flex items-center space-x-2">
+                            {profileImage && (
+                                <Image
+                                    src={profileImage}
+                                    alt="Profile"
+                                    width={32}
+                                    height={32}
+                                    className="rounded-full"
+                                />
+                            )}
+                            <button
+                                onClick={handleLogout}
+                                className="text-gray-300 hover:text-white"
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </>
+                ) : (
+                    <Link href="/register" className="text-gray-300 hover:text-white">
+                        Register
                     </Link>
                 )}
-            </div>
-            <div className="flex items-center space-x-4">
-                <Link href="/profile" className="flex items-center space-x-2 group">
-                    <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-gray-600 group-hover:border-blue-400 transition-colors">
-                        {profileImage ? (
-                            <Image
-                                src={profileImage}
-                                alt="Profile"
-                                width={32}
-                                height={32}
-                                className="object-cover w-full h-full"
-                                priority
-                            />
-                        ) : (
-                            <Image
-                                src="/images/default-profile.svg"
-                                alt="Default Profile"
-                                width={32}
-                                height={32}
-                                className="object-cover w-full h-full"
-                                priority
-                            />
-                        )}
-                    </div>
-                    <span className="text-white text-sm hidden md:block">
-                        {user?.email}
-                    </span>
-                </Link>
-                <button 
-                    onClick={handleLogout} 
-                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                >
-                    Logout
-                </button>
             </div>
         </header>
     );

@@ -34,6 +34,7 @@ const MusicControls = ({
   const containerRef = useRef(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isAudioReady, setIsAudioReady] = useState(false);
 
   useEffect(() => {
     const initializeAudio = async () => {
@@ -44,9 +45,7 @@ const MusicControls = ({
         
         // Create audio context
         const context = new (window.AudioContext || window.webkitAudioContext)();
-        await context.resume();
-        console.log('Audio context created and resumed');
-
+        
         // Initialize Tone.js
         await Tone.start();
         console.log('Tone.js started');
@@ -103,14 +102,10 @@ const MusicControls = ({
           synth.connect(recorderRef.current);
         });
 
-        // Test sound
-        const testSynth = new Tone.Synth().toDestination();
-        await testSynth.triggerAttackRelease("C4", "8n");
-        console.log('Test sound played');
-
         setIsInitialized(true);
         setInitError(null);
         hasInitializedRef.current = true;
+        setIsAudioReady(true);
         console.log('Audio initialized successfully');
       } catch (error) {
         console.error('Failed to initialize audio:', error);
@@ -153,6 +148,10 @@ const MusicControls = ({
   }, []);
 
   const handlePlay = () => {
+    if (!isAudioReady) {
+      console.log('Audio not ready, waiting for user interaction...');
+      return;
+    }
     setIsPlaying(true);
     playSequence();
   };
@@ -163,36 +162,48 @@ const MusicControls = ({
   };
 
   const handleRecord = () => {
+    if (!isAudioReady) {
+      console.log('Audio not ready, waiting for user interaction...');
+      return;
+    }
     setIsRecording(!isRecording);
   };
 
   const handleMute = () => {
+    if (!isAudioReady) {
+      console.log('Audio not ready, waiting for user interaction...');
+      return;
+    }
     setIsMuted(!isMuted);
   };
 
   return (
-    <div className="flex items-center space-x-4">
+    <div ref={containerRef} className="flex items-center space-x-4">
       <button
         onClick={handlePlay}
         className="bg-green-500 text-white px-4 py-2 rounded"
+        disabled={!isAudioReady}
       >
         {isPlaying ? 'Pause' : 'Play'}
       </button>
       <button
         onClick={handleStop}
         className="bg-red-500 text-white px-4 py-2 rounded"
+        disabled={!isAudioReady}
       >
         Stop
       </button>
       <button
         onClick={handleRecord}
         className={`${isRecording ? 'bg-red-500' : 'bg-gray-500'} text-white px-4 py-2 rounded`}
+        disabled={!isAudioReady}
       >
         {isRecording ? 'Stop Recording' : 'Record'}
       </button>
       <button
         onClick={handleMute}
         className={`${isMuted ? 'bg-yellow-500' : 'bg-gray-500'} text-white px-4 py-2 rounded`}
+        disabled={!isAudioReady}
       >
         {isMuted ? 'Unmute' : 'Mute'}
       </button>
@@ -205,6 +216,7 @@ const MusicControls = ({
           value={tempo}
           onChange={(e) => setTempo(Number(e.target.value))}
           className="w-32"
+          disabled={!isAudioReady}
         />
         <span>{tempo} BPM</span>
       </div>
@@ -217,6 +229,7 @@ const MusicControls = ({
           value={volume}
           onChange={(e) => setVolume(Number(e.target.value))}
           className="w-32"
+          disabled={!isAudioReady}
         />
         <span>{volume}%</span>
       </div>
