@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react';
 export default function Navbar() {
     const { user, logout, isAdmin } = useAuth();
     const router = useRouter();
-    const [profileImage, setProfileImage] = useState('');
+    const [profileImage, setProfileImage] = useState('/default-profile.png');
 
     useEffect(() => {
         if (user) {
@@ -18,15 +18,20 @@ export default function Navbar() {
     }, [user]);
 
     const fetchProfileData = async () => {
+        if (!user) return;
+        
         try {
-            const response = await fetch(`/api/users/${user?.uid}`, {
+            const token = await user.getIdToken();
+            const response = await fetch(`/api/users/${user.uid}`, {
                 headers: {
-                    'Authorization': `Bearer ${await user?.getIdToken()}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
+            
             if (!response.ok) {
                 throw new Error('Failed to fetch profile data');
             }
+            
             const data = await response.json();
             setProfileImage(data.profileImage || '/default-profile.png');
         } catch (error) {
@@ -52,37 +57,37 @@ export default function Navbar() {
                 </Link>
             </div>
             
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-6">
                 {user ? (
                     <>
-                        <Link href="/profile" className="text-gray-300 hover:text-white">
+                        <Link href="/profile" className="text-gray-300 hover:text-white transition-colors">
                             Profile
                         </Link>
                         {isAdmin && (
-                            <Link href="/admin" className="text-gray-300 hover:text-white">
+                            <Link href="/admin" className="text-gray-300 hover:text-white transition-colors">
                                 Admin
                             </Link>
                         )}
-                        <div className="flex items-center space-x-2">
-                            {profileImage && (
+                        <div className="flex items-center space-x-3">
+                            <div className="relative w-8 h-8">
                                 <Image
                                     src={profileImage}
                                     alt="Profile"
-                                    width={32}
-                                    height={32}
-                                    className="rounded-full"
+                                    fill
+                                    className="rounded-full object-cover"
+                                    onError={() => setProfileImage('/default-profile.png')}
                                 />
-                            )}
+                            </div>
                             <button
                                 onClick={handleLogout}
-                                className="text-gray-300 hover:text-white"
+                                className="text-gray-300 hover:text-white transition-colors px-3 py-1 rounded hover:bg-gray-700"
                             >
                                 Logout
                             </button>
                         </div>
                     </>
                 ) : (
-                    <Link href="/register" className="text-gray-300 hover:text-white">
+                    <Link href="/register" className="text-gray-300 hover:text-white transition-colors">
                         Register
                     </Link>
                 )}
