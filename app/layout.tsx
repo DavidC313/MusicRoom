@@ -40,6 +40,10 @@ export default function RootLayout({
       <head>
         <link rel="icon" href="/musicroom.ico" type="image/x-icon" />
         <link rel="shortcut icon" href="/musicroom.ico" type="image/x-icon" />
+        <link rel="apple-touch-icon" href="/musicroom.ico" />
+        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta httpEquiv="Pragma" content="no-cache" />
+        <meta httpEquiv="Expires" content="0" />
       </head>
       <body className={inter.className}>
         <AuthProvider>{children}</AuthProvider>
