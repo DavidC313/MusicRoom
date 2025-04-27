@@ -148,14 +148,22 @@ const SystemHealthMonitor = () => {
 
                 // Detect current browser
                 let currentBrowser = 'Unknown';
-                if (typeof InstallTrigger !== 'undefined') {
+                const userAgent = navigator.userAgent.toLowerCase();
+                
+                if (userAgent.includes('firefox')) {
                     currentBrowser = 'Firefox';
-                } else if (!!window.chrome && (!!window.chrome.webstore || !!window.chrome.runtime)) {
+                } else if (userAgent.includes('chrome') && !userAgent.includes('edg')) {
                     currentBrowser = 'Chrome';
-                } else if (/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) {
+                } else if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
                     currentBrowser = 'Safari';
-                } else if (navigator.userAgent.includes('Edg/')) {
+                } else if (userAgent.includes('edg')) {
                     currentBrowser = 'Edge';
+                } else if (userAgent.includes('opera') || userAgent.includes('opr')) {
+                    currentBrowser = 'Opera';
+                } else if (userAgent.includes('msie') || userAgent.includes('trident')) {
+                    currentBrowser = 'Internet Explorer';
+                } else if (userAgent.includes('brave')) {
+                    currentBrowser = 'Brave';
                 }
 
                 setSystemResources(prev => ({

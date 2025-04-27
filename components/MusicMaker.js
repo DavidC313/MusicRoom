@@ -2224,7 +2224,9 @@ export default function MusicMaker() {
                 const synth = synthRefs.current[selectedTrack];
                 if (synth) {
                     const volumeValue = track.muted ? -Infinity : track.volume;
-                                synth.volume.value = volumeValue;
+                    if (synth.volume && typeof synth.volume.value !== 'undefined') {
+                        synth.volume.value = volumeValue;
+                    }
                 }
             } catch (error) {
                 console.error('Error initializing track synth:', error);
@@ -2940,6 +2942,33 @@ export default function MusicMaker() {
                                 </select>
                             </div>
                             <div className="flex items-center space-x-2">
+                                <input
+                                    type="range"
+                                    min="-60"
+                                    max="0"
+                                    value={track.volume}
+                                    onChange={(e) => {
+                                        const newVolume = parseFloat(e.target.value);
+                                        setTracks(tracks.map(t => t.id === track.id ? { ...t, volume: newVolume } : t));
+                                    }}
+                                    className="w-24"
+                                />
+                                <button
+                                    onClick={() => {
+                                        setTracks(tracks.map(t => t.id === track.id ? { ...t, solo: !t.solo } : t));
+                                    }}
+                                    className={`px-2 py-1 rounded ${track.solo ? 'bg-green-500' : 'bg-gray-500'}`}
+                                >
+                                    Solo
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setTracks(tracks.map(t => t.id === track.id ? { ...t, muted: !t.muted } : t));
+                                    }}
+                                    className={`px-2 py-1 rounded ${track.muted ? 'bg-red-500' : 'bg-gray-500'}`}
+                                >
+                                    Mute
+                                </button>
                                 <button
                                     onClick={() => setSelectedTrack(track.id)}
                                     className={`px-3 py-1 rounded flex items-center gap-1 ${
@@ -2947,12 +2976,6 @@ export default function MusicMaker() {
                                     }`}
                                 >
                                     <FaCheck /> Select
-                                </button>
-                                <button
-                                    onClick={() => clearTrack(track.id)}
-                                    className="px-3 py-1 bg-yellow-600 text-white rounded hover:bg-yellow-700 flex items-center gap-1"
-                                >
-                                    <FaEraser /> Clear
                                 </button>
                                 {tracks.length > 1 && (
                                     <button

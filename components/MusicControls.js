@@ -1,4 +1,4 @@
-'use client';
+short 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { FaGuitar, FaMusic, FaDrum, FaChartBar, FaMobileAlt } from 'react-icons/fa';
