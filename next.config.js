@@ -4,7 +4,7 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
     images: {
-        domains: ['firebasestorage.googleapis.com'],
+        domains: ['lh3.googleusercontent.com', 'firebasestorage.googleapis.com'],
     },
     experimental: {
         serverActions: {
@@ -29,6 +29,14 @@ const nextConfig = {
                 ],
             },
         ];
+    },
+    swcMinify: true,
+    webpack: (config) => {
+        config.resolve.fallback = {
+            ...config.resolve.fallback,
+            fs: false,
+        };
+        return config;
     },
 };
 
