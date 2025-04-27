@@ -15,7 +15,7 @@
     "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET": "musicroom-76043.firebasestorage.app",
     "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "959517185081",
     "NEXT_PUBLIC_FIREBASE_APP_ID": "1:959517185081:web:03499897e40346a4f369e8",
-    "NEXTAUTH_URL": "@nextauth_url",
-    "NEXTAUTH_SECRET": "@nextauth_secret"
+    "NEXTAUTH_URL": "https://music-room-ashy.vercel.app",
+    "NEXTAUTH_SECRET": "dGhpcyBpcyBhIHNlY3VyZSBzZWNyZXQga2V5IGZvciBuZXh0YXV0aA=="
   }
 } 
