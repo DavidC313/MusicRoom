@@ -14,8 +14,7 @@ const nextConfig = {
     },
     typescript: {
         ignoreBuildErrors: true,
-            },
-    serverExternalPackages: ['mongodb'],
+    },
     // Ensure static assets are properly cached
     async headers() {
         return [
@@ -30,7 +29,6 @@ const nextConfig = {
             },
         ];
     },
-    swcMinify: true,
     webpack: (config) => {
         config.resolve.fallback = {
             ...config.resolve.fallback,

@@ -7,7 +7,7 @@ import Navbar from '@/components/Navbar';
 import SystemHealthMonitor from '@/components/SystemHealthMonitor';
 import Image from 'next/image';
 
-interface User {
+type User = {
     uid: string;
     email: string;
     displayName?: string;

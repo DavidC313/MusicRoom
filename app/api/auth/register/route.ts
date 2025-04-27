@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import { auth } from '@/utils/firebase-admin';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     console.log('Starting registration process...');
     
