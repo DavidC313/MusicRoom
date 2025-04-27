@@ -7,7 +7,7 @@ module.exports = {
   },
   testMatch: ['**/tests/**/*.test.ts', '**/tests/**/*.test.tsx'],
   transform: {
-    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }],
+    '^.+\\.(js|jsx|ts|tsx)$': ['@swc/jest'],
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   transformIgnorePatterns: [
