@@ -66,7 +66,7 @@ export default function Register() {
                         width={300}
                         height={200}
                         className="rounded-lg shadow-lg"
-                        priority="true"
+                        priority
                         style={{ width: 'auto', height: 'auto' }}
                     />
                     <h1 className="text-4xl font-bold text-white tracking-wide">MusicRoom</h1>

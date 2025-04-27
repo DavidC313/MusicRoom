@@ -1,45 +1,39 @@
 # Core dependencies
-next==15.2.4
-react==18.3.1
-react-dom==18.3.1
-typescript==5.0.0
-@types/react==18.0.0
-@types/react-dom==18.0.0
-@types/node==20.0.0
-nextjs==0.0.3
-
-# Authentication and Firebase
-firebase==11.6.0
-firebase-admin==12.7.0
-@auth/firebase-adapter==2.9.0
-next-auth==4.24.11
-react-firebase-hooks==5.1.1
+next==14.1.0
+react==18.2.0
+react-dom==18.2.0
+typescript==5.3.3
+@types/react==18.2.0
+@types/node==20.11.0
 
 # Audio processing
-tone==15.0.4
+tone==14.7.77
+@tonejs/midi==2.0.28
 
 # UI components and styling
 tailwindcss==3.4.1
+@tailwindcss/forms==0.5.7
 autoprefixer==10.4.17
 postcss==8.4.35
-react-icons==5.5.0
-bootstrap==5.3.5
 
-# Database
-mongodb==6.14.2
+# Authentication and database
+next-auth==4.24.5
+prisma==5.9.1
+@prisma/client==5.9.1
 
-# Development and testing
-@testing-library/jest-dom==6.6.3
-@testing-library/react==16.3.0
-@testing-library/user-event==14.6.1
+# Development tools
+eslint==8.56.0
+prettier==3.2.5
+typescript-eslint==7.0.1
+@typescript-eslint/parser==7.0.1
+@typescript-eslint/eslint-plugin==7.0.1
+
+# Testing
 jest==29.7.0
-jest-environment-jsdom==29.7.0
-msw==2.7.5
-eslint==9.0.0
-eslint-config-next==15.2.1
-ts-node==10.9.2
+@testing-library/react==14.2.1
+@testing-library/jest-dom==6.4.2
 
 # Utility packages
-date-fns==4.1.0
-js-cookie==3.0.5
-@types/js-cookie==3.0.6 
+date-fns==3.3.1
+axios==1.6.7
+zustand==4.5.0 

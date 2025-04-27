@@ -128,15 +128,15 @@ export default function MusicControls() {
                 container.removeEventListener('click', handleInteraction);
                 container.removeEventListener('touchstart', handleInteraction);
             }
-            if (masterVolumeRef.current && typeof masterVolumeRef.current.dispose === 'function') {
+            if (masterVolumeRef.current) {
                 masterVolumeRef.current.dispose();
             }
             Object.values(synthsRef.current).forEach(synth => {
-                if (synth && typeof synth.dispose === 'function') {
+                if (synth) {
                     synth.dispose();
                 }
             });
-            if (recorderRef.current && typeof recorderRef.current.dispose === 'function') {
+            if (recorderRef.current) {
                 recorderRef.current.dispose();
             }
         };
@@ -234,102 +234,136 @@ export default function MusicControls() {
     };
 
     return (
-        <div ref={containerRef} data-testid="music-controls-container" className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="bg-white p-4 rounded-lg shadow">
-                    <h2 className="text-xl font-bold mb-4">Electric Guitar</h2>
-                    <div className="flex flex-col space-y-4">
-                        <div>
-                            <label htmlFor="volume" className="block text-sm font-medium text-gray-700">
-                                Volume
-                            </label>
-                            <input
-                                type="range"
-                                id="volume"
-                                min="0"
-                                max="100"
-                                value={volume}
-                                onChange={(e) => setVolume(Number(e.target.value))}
-                                className="w-full"
-                                aria-label="Volume"
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="effect" className="block text-sm font-medium text-gray-700">
-                                Effect
-                            </label>
-                            <select
-                                id="effect"
-                                value={effect}
-                                onChange={(e) => setEffect(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                                aria-label="Effect"
-                            >
-                                <option value="None">None</option>
-                                <option value="Reverb">Reverb</option>
-                                <option value="Delay">Delay</option>
-                                <option value="Distortion">Distortion</option>
-                            </select>
-                        </div>
-                        <div className="flex space-x-2">
-                            <button
-                                onClick={() => handlePlay('Guitar')}
-                                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                                aria-label="Play Guitar"
-                            >
-                                Play
-                            </button>
-                            <button
-                                onClick={handleRecord}
-                                className={`flex-1 ${isRecording ? 'bg-red-500' : 'bg-green-500'} text-white px-4 py-2 rounded hover:opacity-90`}
-                                aria-label="Record"
-                            >
-                                {isRecording ? 'Recording...' : 'Record'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white p-4 rounded-lg shadow">
-                    <h2 className="text-xl font-bold mb-4">Global Controls</h2>
-                    <div className="flex flex-col space-y-4">
-                        <button
-                            onClick={handlePlayAll}
-                            className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-                            aria-label="Play All"
-                        >
-                            Play All
-                        </button>
-                        <div>
-                            <label htmlFor="tempo" className="block text-sm font-medium text-gray-700">
-                                Tempo
-                            </label>
-                            <input
-                                type="number"
-                                id="tempo"
-                                min="60"
-                                max="200"
-                                value={tempo}
-                                onChange={(e) => setTempo(Number(e.target.value))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                                aria-label="Tempo"
-                            />
-                        </div>
-                        <button
-                            onClick={handleMetronomeToggle}
-                            className={`${metronomeEnabled ? 'bg-green-500' : 'bg-gray-500'} text-white px-4 py-2 rounded hover:opacity-90`}
-                            aria-label="Metronome"
-                        >
-                            Metronome {metronomeEnabled ? 'On' : 'Off'}
-                        </button>
-                    </div>
-                </div>
-            </div>
+        <div ref={containerRef} className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
             {initError && (
-                <div className="mt-4 p-4 bg-red-100 text-red-700 rounded">
-                    Error initializing audio: {initError}
+                <div className="col-span-3 text-center">
+                    <p className="text-red-500">Error: {initError}</p>
                 </div>
             )}
+
+            {/* Audio Visualization */}
+            <div className="col-span-3 text-center">
+                <h2 className="text-xl font-bold flex items-center justify-center gap-2">
+                    <FaChartBar className="text-green-500" /> Audio Visualization
+                </h2>
+                <canvas ref={canvasRef} className="w-full h-40 bg-black rounded-lg mt-4"></canvas>
+            </div>
+
+            {/* Instrument Panels */}
+            {[{ name: 'Guitar', icon: FaGuitar, color: 'text-red-500' }, { name: 'Bass', icon: FaMusic, color: 'text-purple-500' }, { name: 'Drums', icon: FaDrum, color: 'text-orange-500' }].map((instrument, index) => (
+                <div key={index} className="bg-gray-100 p-6 rounded-xl shadow-lg text-center border border-gray-300">
+                    <h2 className={`text-xl font-bold flex items-center justify-center gap-2 ${instrument.color}`}>
+                        <instrument.icon /> {instrument.name}
+                    </h2>
+                    <div className="mt-4 flex flex-col gap-2">
+                        <button 
+                            onClick={() => handlePlay(instrument.name)} 
+                            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            disabled={!isInitialized}
+                        >
+                            Play
+                        </button>
+                        <button 
+                            onClick={isRecording ? handleStopRecording : handleRecord}
+                            className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-700 transition-colors"
+                            disabled={!isInitialized}
+                        >
+                            {isRecording ? 'Stop Recording' : 'Record'}
+                        </button>
+                        <button 
+                            onClick={handlePlayRecording}
+                            className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-700 transition-colors"
+                            disabled={!isInitialized || !hasRecording}
+                        >
+                            Play Recording
+                        </button>
+                        <button 
+                            onClick={handleDownload}
+                            className="px-6 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                            disabled={!isInitialized || !hasRecording}
+                        >
+                            Download
+                        </button>
+                    </div>
+                    <label className="block text-sm mt-4">Volume</label>
+                    <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        value={volume} 
+                        className="w-full" 
+                        onChange={(e) => {
+                            setVolume(e.target.value);
+                            const synth = synthsRef.current[instrument.name];
+                            if (synth) {
+                                synth.volume.value = Tone.gainToDb(e.target.value / 100);
+                            }
+                        }}
+                    />
+                    <label className="block text-sm mt-4">Effects</label>
+                    <select 
+                        className="w-full p-2 mt-1 border rounded"
+                        value={effect}
+                        onChange={(e) => setEffect(e.target.value)}
+                    >
+                        <option>None</option>
+                        <option>Chorus</option>
+                        <option>Distortion</option>
+                        <option>Phaser</option>
+                    </select>
+                </div>
+            ))}
+
+            {/* Playback Controls */}
+            <div className="col-span-3 text-center mt-6">
+                <h2 className="text-xl font-bold flex items-center justify-center gap-2">
+                    <FaMobileAlt className="text-gray-600" /> Playback Controls
+                </h2>
+                <div className="mt-4 flex justify-center gap-4">
+                    <button 
+                        onClick={handlePlayAll} 
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                        disabled={!isInitialized}
+                    >
+                        Play All
+                    </button>
+                    <button 
+                        onClick={handleLoopAll} 
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                        disabled={!isInitialized}
+                    >
+                        Loop All
+                    </button>
+                    <button 
+                        onClick={handleStopAll} 
+                        className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                        disabled={!isInitialized}
+                    >
+                        Stop All
+                    </button>
+                </div>
+                <div className="mt-4">
+                    <input 
+                        type="checkbox" 
+                        checked={metronomeEnabled} 
+                        onChange={handleMetronomeToggle}
+                        className="mr-2"
+                        disabled={!isInitialized}
+                    />
+                    Enable Metronome
+                </div>
+                <div className="mt-2">
+                    <label className="text-sm mr-2">Tempo (BPM)</label>
+                    <input 
+                        type="number" 
+                        value={tempo} 
+                        onChange={(e) => setTempo(Number(e.target.value))} 
+                        className="w-16 border p-1 rounded"
+                        min="40"
+                        max="240"
+                    />
+                </div>
+            </div>
         </div>
     );
 }

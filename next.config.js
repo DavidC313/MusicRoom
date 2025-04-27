@@ -4,7 +4,7 @@ const nextConfig = {
         ignoreDuringBuilds: true,
     },
     images: {
-        domains: ['lh3.googleusercontent.com', 'firebasestorage.googleapis.com'],
+        domains: ['firebasestorage.googleapis.com'],
     },
     experimental: {
         serverActions: {
@@ -14,7 +14,8 @@ const nextConfig = {
     },
     typescript: {
         ignoreBuildErrors: true,
-    },
+            },
+    serverExternalPackages: ['mongodb'],
     // Ensure static assets are properly cached
     async headers() {
         return [
@@ -28,13 +29,6 @@ const nextConfig = {
                 ],
             },
         ];
-    },
-    webpack: (config) => {
-        config.resolve.fallback = {
-            ...config.resolve.fallback,
-            fs: false,
-        };
-        return config;
     },
 };
 
