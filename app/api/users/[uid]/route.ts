@@ -37,12 +37,33 @@ export async function GET(
         }
 
         // Connect to MongoDB
-        console.log('Connecting to MongoDB...');
-        const { db } = await connectToDatabase();
-        console.log('Connected to MongoDB, fetching user...');
+        let db;
+        try {
+            console.log('Connecting to MongoDB...');
+            const connection = await connectToDatabase();
+            db = connection.db;
+            console.log('Connected to MongoDB successfully');
+        } catch (dbError) {
+            console.error('MongoDB connection error:', dbError);
+            return Response.json({ 
+                error: 'Database connection failed', 
+                details: dbError instanceof Error ? dbError.message : 'Unknown error' 
+            }, { status: 500 });
+        }
         
-        const user = await db.collection('users').findOne({ uid });
-        console.log('MongoDB query result:', user ? 'User found' : 'User not found');
+        // Query MongoDB
+        let user;
+        try {
+            console.log('Querying MongoDB for user:', uid);
+            user = await db.collection('users').findOne({ uid });
+            console.log('MongoDB query result:', user ? 'User found' : 'User not found');
+        } catch (queryError) {
+            console.error('MongoDB query error:', queryError);
+            return Response.json({ 
+                error: 'Database query failed', 
+                details: queryError instanceof Error ? queryError.message : 'Unknown error' 
+            }, { status: 500 });
+        }
 
         if (!user) {
             // Create new user document if it doesn't exist
@@ -71,9 +92,12 @@ export async function GET(
                 await db.collection('users').insertOne(newUser);
                 console.log('New user document created successfully');
                 return Response.json(newUser);
-            } catch (dbError) {
-                console.error('Failed to create new user document:', dbError);
-                return Response.json({ error: 'Failed to create user profile', details: dbError instanceof Error ? dbError.message : 'Unknown error' }, { status: 500 });
+            } catch (insertError) {
+                console.error('Failed to create new user document:', insertError);
+                return Response.json({ 
+                    error: 'Failed to create user profile', 
+                    details: insertError instanceof Error ? insertError.message : 'Unknown error' 
+                }, { status: 500 });
             }
         }
 
