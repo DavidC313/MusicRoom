@@ -31,19 +31,18 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-800 rounded-xl shadow-2xl p-8 space-y-6">
+      <div className="w-full max-w-md bg-gray-800 rounded-xl shadow-2xl p-6 sm:p-8 space-y-6">
         <div className="flex flex-col items-center space-y-4">
           <Image
             src="/musicroom.webp"
             alt="Music Room Logo"
             width={300}
             height={200}
-            className="rounded-lg shadow-lg"
+            className="rounded-lg shadow-lg w-full max-w-[300px] h-auto"
             priority
-            style={{ width: 'auto', height: 'auto' }}
           />
-          <h1 className="text-4xl font-bold text-white tracking-wide">MusicRoom</h1>
-          <p className="text-gray-400 text-sm">Your personal music creation space</p>
+          <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-wide text-center">MusicRoom</h1>
+          <p className="text-gray-400 text-sm text-center">Your personal music creation space</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -54,7 +53,7 @@ export default function Login() {
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base"
               placeholder="Enter your email"
               required
               disabled={loading}
@@ -67,7 +66,7 @@ export default function Login() {
               id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base"
               placeholder="Enter your password"
               required
               disabled={loading}
@@ -78,27 +77,22 @@ export default function Login() {
               <p className="text-red-500 text-sm text-center">{error}</p>
             </div>
           )}
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={loading}
-            className={`w-full bg-blue-600 text-white font-medium py-3 px-4 rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.02] ${
-              loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
-            }`}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
-          <div className="text-center">
-            <p className="text-gray-400 text-sm">
-              Don&apos;t have an account?{' '}
-              <Link 
-                href="/register" 
-                className="text-blue-500 hover:text-blue-400 font-medium transition-colors"
-              >
-                Create An Account
-              </Link>
-            </p>
-          </div>
         </form>
+        <div className="text-center">
+          <p className="text-gray-400 text-sm">
+            Don't have an account?{' '}
+            <Link href="/register" className="text-blue-400 hover:text-blue-300">
+              Register here
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

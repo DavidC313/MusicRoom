@@ -11,63 +11,35 @@ export async function GET(
         
         // Verify Firebase token
         const authHeader = request.headers.get('authorization');
-        console.log('Authorization header:', authHeader ? 'Present' : 'Missing');
+        console.log('Authorization header present:', !!authHeader);
         
         if (!authHeader?.startsWith('Bearer ')) {
             console.error('Invalid authorization header format');
-            return Response.json({ error: 'Unauthorized - Invalid header format' }, { status: 401 });
+            return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const token = authHeader.split('Bearer ')[1];
         console.log('Token extracted, length:', token.length);
-        
+
         let decodedToken;
         try {
             decodedToken = await auth.verifyIdToken(token);
             console.log('Token verified successfully for user:', decodedToken.uid);
-            
-            // Verify token matches requested user
-            if (decodedToken.uid !== uid) {
-                console.error('Token UID does not match requested UID:', { tokenUid: decodedToken.uid, requestedUid: uid });
-                return Response.json({ error: 'Unauthorized - Token mismatch' }, { status: 401 });
-            }
         } catch (tokenError) {
             console.error('Token verification failed:', tokenError);
-            return Response.json({ error: 'Invalid token', details: tokenError instanceof Error ? tokenError.message : 'Unknown error' }, { status: 401 });
+            return Response.json({ error: 'Invalid token' }, { status: 401 });
         }
 
         // Connect to MongoDB
-        let db;
-        try {
-            console.log('Connecting to MongoDB...');
-            const connection = await connectToDatabase();
-            db = connection.db;
-            console.log('Connected to MongoDB successfully');
-        } catch (dbError) {
-            console.error('MongoDB connection error:', dbError);
-            return Response.json({ 
-                error: 'Database connection failed', 
-                details: dbError instanceof Error ? dbError.message : 'Unknown error' 
-            }, { status: 500 });
-        }
+        const { db } = await connectToDatabase();
+        console.log('Connected to MongoDB, fetching user...');
         
-        // Query MongoDB
-        let user;
-        try {
-            console.log('Querying MongoDB for user:', uid);
-            user = await db.collection('users').findOne({ uid });
-            console.log('MongoDB query result:', user ? 'User found' : 'User not found');
-        } catch (queryError) {
-            console.error('MongoDB query error:', queryError);
-            return Response.json({ 
-                error: 'Database query failed', 
-                details: queryError instanceof Error ? queryError.message : 'Unknown error' 
-            }, { status: 500 });
-        }
+        const user = await db.collection('users').findOne({ uid });
+        console.log('User found in MongoDB:', user ? 'yes' : 'no');
 
         if (!user) {
             // Create new user document if it doesn't exist
-            console.log('Creating new user document for:', decodedToken.email);
+            console.log('Creating new user document...');
             const newUser = {
                 uid,
                 email: decodedToken.email,
@@ -88,17 +60,9 @@ export async function GET(
                 }
             };
             
-            try {
-                await db.collection('users').insertOne(newUser);
-                console.log('New user document created successfully');
-                return Response.json(newUser);
-            } catch (insertError) {
-                console.error('Failed to create new user document:', insertError);
-                return Response.json({ 
-                    error: 'Failed to create user profile', 
-                    details: insertError instanceof Error ? insertError.message : 'Unknown error' 
-                }, { status: 500 });
-            }
+            await db.collection('users').insertOne(newUser);
+            console.log('New user document created');
+            return Response.json(newUser);
         }
 
         console.log('Returning existing user data');
@@ -229,7 +193,7 @@ export async function DELETE(
             } catch (firebaseError) {
                 console.error('Error deleting user from Firebase:', firebaseError);
                 return Response.json({ error: 'Failed to delete user from Firebase' }, { status: 500 });
-            }
+        }
         }
 
         // Delete user from MongoDB

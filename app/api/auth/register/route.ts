@@ -5,10 +5,23 @@ import { auth } from '@/utils/firebase-admin';
 export async function POST(request: Request) {
   try {
     console.log('Starting registration process...');
-    const { email, password, name } = await request.json();
     
-    if (!email || !password || !name) {
-      console.error('Missing required fields:', { email, password, name });
+    // Verify Firebase token
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await auth.verifyIdToken(token);
+    
+    const { email, name } = await request.json();
+    
+    if (!email || !name) {
+      console.error('Missing required fields:', { email, name });
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -30,19 +43,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create user in Firebase
-    const userRecord = await auth.createUser({
-      email,
-      password,
-      displayName: name,
-    });
-
     // Insert new user
     console.log('Inserting new user...');
     const result = await db.collection('users').insertOne({
-      uid: userRecord.uid,
-      email: userRecord.email,
-      name: userRecord.displayName,
+      uid: decodedToken.uid,
+      email: email,
+      name: name,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -50,12 +56,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ 
       message: 'User registered successfully',
-      uid: userRecord.uid 
+      uid: decodedToken.uid 
     });
   } catch (error: unknown) {
     console.error('Registration error:', error);
     if (error instanceof Error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ error: 'An unknown error occurred' }, { status: 500 });
   }

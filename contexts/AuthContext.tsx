@@ -76,22 +76,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const response = await fetch('/api/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await userCredential.user.getIdToken()}`
+        },
         body: JSON.stringify({
           email: userCredential.user.email,
-          password: password,
           name: userCredential.user.email?.split('@')[0] || 'User'
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create user in database');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create user in database');
       }
 
       console.log('User registered successfully');
+      router.push('/profile');
     } catch (error: any) {
       console.error('Registration error in AuthContext:', error);
-      throw error;
+      if (error.code === 'auth/email-already-in-use') {
+        throw new Error('Email is already in use');
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error('Invalid email address');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error('Registration is currently disabled');
+      } else if (error.code === 'auth/weak-password') {
+        throw new Error('Password is too weak');
+      } else {
+        throw new Error(error.message || 'Failed to create user');
+      }
     }
   };
 

@@ -41,13 +41,13 @@ export default function Profile() {
     useEffect(() => {
         if (!user) {
             console.log('No user found, redirecting to login');
-            router.push('/');
+            router.push('/login');
             return;
         }
 
         console.log('User found:', user.uid);
-        const fetchProfileData = async () => {
-            try {
+    const fetchProfileData = async () => {
+        try {
                 setLoading(true);
                 setError(null);
                 
@@ -55,25 +55,17 @@ export default function Profile() {
                 const token = await user.getIdToken();
                 console.log('Got ID token:', token ? 'yes' : 'no');
                 
-                // Log the API URL and request details
+                // Log the API URL
                 const apiUrl = `/api/users/${user.uid}`;
-                console.log('Making request to:', apiUrl, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    }
-                });
+                console.log('Fetching from:', apiUrl);
                 
                 const response = await fetch(apiUrl, {
-                    headers: {
+                headers: {
                         Authorization: `Bearer ${token}`,
                     },
                 });
 
-                console.log('Response received:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    ok: response.ok
-                });
+                console.log('Response status:', response.status);
                 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -83,45 +75,36 @@ export default function Profile() {
                         error: errorData
                     });
                     throw new Error(errorData.error || `Failed to fetch profile data (${response.status})`);
-                }
+            }
 
-                const data = await response.json();
+            const data = await response.json();
                 console.log('Profile data received:', data);
-                
-                if (!data) {
-                    console.error('No data received from API');
-                    throw new Error('No data received from API');
-                }
-                
-                setProfileData(prev => {
-                    const newData = {
-                        ...prev,
-                        ...data,
-                        displayName: data.displayName || user.displayName || '',
-                        email: data.email || user.email || '',
-                        photoURL: data.photoURL || user.photoURL || '',
-                        aboutMe: data.aboutMe || '',
-                        favoriteArtists: data.favoriteArtists || '',
-                        musicGenres: data.musicGenres || [],
-                        socialLinks: data.socialLinks || {
-                            twitter: '',
-                            github: '',
-                            linkedin: '',
-                            instagram: '',
-                            facebook: '',
-                            youtube: ''
-                        }
-                    };
-                    console.log('Setting profile data:', newData);
-                    return newData;
-                });
+            
+                setProfileData(prev => ({
+                    ...prev,
+                ...data,
+                    displayName: data.displayName || user.displayName || '',
+                    email: data.email || user.email || '',
+                    photoURL: data.photoURL || user.photoURL || '',
+                    aboutMe: data.aboutMe || '',
+                    favoriteArtists: data.favoriteArtists || '',
+                    musicGenres: data.musicGenres || [],
+                    socialLinks: data.socialLinks || {
+                        twitter: '',
+                        github: '',
+                        linkedin: '',
+                        instagram: '',
+                        facebook: '',
+                        youtube: ''
+                    }
+                }));
             } catch (err) {
                 console.error('Profile fetch error:', err);
                 setError(err instanceof Error ? err.message : 'Failed to load profile');
-            } finally {
+        } finally {
                 setLoading(false);
-            }
-        };
+        }
+    };
 
         fetchProfileData();
     }, [user, router]);
@@ -211,15 +194,15 @@ export default function Profile() {
       };
 
       const response = await fetch(`/api/users/${user.uid}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
-        },
+                },
         body: JSON.stringify(updateData),
-      });
+            });
 
-      if (!response.ok) {
+            if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to update profile');
       }
@@ -229,10 +212,10 @@ export default function Profile() {
     } catch (err) {
       console.error('Profile update error:', err);
       setError(err instanceof Error ? err.message : 'Failed to update profile');
-    } finally {
+        } finally {
       setLoading(false);
-    }
-  };
+        }
+    };
 
   if (loading) {
     return (
@@ -298,24 +281,24 @@ export default function Profile() {
               <div className="space-y-6">
                 {/* Profile Picture Section */}
                 <div className="flex items-center">
-                    <div className="relative">
+                                <div className="relative">
                         {profileData.photoURL ? (
-                            <Image
+                                        <Image
                                 src={profileData.photoURL}
                                 alt={profileData.displayName || 'Profile'}
                                 width={100}
                                 height={100}
                                 className="rounded-full"
-                                priority
+                                            priority
                                 style={{ width: 'auto', height: 'auto' }}
-                            />
-                        ) : (
+                                        />
+                                    ) : (
                             <div className="w-24 h-24 rounded-full bg-gray-700 flex items-center justify-center">
                                 <span className="text-3xl text-white">
                                     {profileData.email?.[0]?.toUpperCase() || 'U'}
                                 </span>
-                            </div>
-                        )}
+                                        </div>
+                                    )}
                         {isEditing && (
                             <button
                                 onClick={() => fileInputRef.current?.click()}
@@ -325,14 +308,14 @@ export default function Profile() {
                                 <FaCamera />
                             </button>
                         )}
-                        <input
-                            type="file"
+                                        <input
+                                            type="file"
                             ref={fileInputRef}
                             onChange={handlePhotoUpload}
-                            accept="image/*"
-                            className="hidden"
-                        />
-                    </div>
+                                            accept="image/*"
+                                            className="hidden"
+                                        />
+                                </div>
                     <div className="ml-6">
                         {isEditing ? (
                             <div className="space-y-2">

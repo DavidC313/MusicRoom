@@ -8,8 +8,8 @@ const inter = Inter({ subsets: ['latin'] });
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
   themeColor: '#000000',
 };
 
@@ -17,7 +17,10 @@ export const metadata: Metadata = {
   title: 'MusicRoom',
   description: 'Listen to music together with friends',
   icons: {
-    icon: '/musicroom.ico',
+    icon: [
+      { url: '/musicroom.ico', sizes: 'any' },
+      { url: '/musicroom.ico', type: 'image/x-icon' }
+    ],
     shortcut: '/musicroom.ico',
     apple: '/musicroom.ico',
     other: {
@@ -34,6 +37,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/musicroom.ico" type="image/x-icon" />
+        <link rel="shortcut icon" href="/musicroom.ico" type="image/x-icon" />
+      </head>
       <body className={inter.className}>
         <AuthProvider>{children}</AuthProvider>
       </body>
