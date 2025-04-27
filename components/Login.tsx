@@ -39,7 +39,7 @@ export default function Login() {
             width={300}
             height={200}
             className="rounded-lg shadow-lg w-full max-w-[300px] h-auto"
-            priority
+            priority="true"
           />
           <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-wide text-center">MusicRoom</h1>
           <p className="text-gray-400 text-sm text-center">Your personal music creation space</p>

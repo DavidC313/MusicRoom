@@ -2,7 +2,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
+import { initializeFirestore, CACHE_SIZE_UNLIMITED, Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -17,7 +17,7 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 // Initialize Firestore with error handling
-let db;
+let db: Firestore;
 try {
   // Initialize Firestore with unlimited cache size
   db = initializeFirestore(app, {
@@ -38,7 +38,7 @@ try {
       get: () => Promise.reject(new Error('Firestore connection failed')),
       add: () => Promise.reject(new Error('Firestore connection failed')),
     }),
-  };
+  } as unknown as Firestore;
 }
 
 export { db };
