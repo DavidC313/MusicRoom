@@ -17,8 +17,14 @@ export async function GET(
         }
 
         const token = authHeader.split('Bearer ')[1];
-        const decodedToken = await auth.verifyIdToken(token);
-        console.log('Token verified for user:', decodedToken.uid);
+        let decodedToken;
+        try {
+            decodedToken = await auth.verifyIdToken(token);
+            console.log('Token verified for user:', decodedToken.uid);
+        } catch (tokenError) {
+            console.error('Token verification failed:', tokenError);
+            return Response.json({ error: 'Invalid token' }, { status: 401 });
+        }
 
         // Connect to MongoDB
         const { db } = await connectToDatabase();
@@ -33,8 +39,8 @@ export async function GET(
             const newUser = {
                 uid,
                 email: decodedToken.email,
-                displayName: decodedToken.name,
-                photoURL: decodedToken.picture,
+                displayName: decodedToken.displayName || decodedToken.name || '',
+                photoURL: decodedToken.picture || '',
                 createdAt: new Date(),
                 updatedAt: new Date(),
                 aboutMe: '',

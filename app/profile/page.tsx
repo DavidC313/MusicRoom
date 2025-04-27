@@ -46,41 +46,49 @@ export default function Profile() {
 
     const fetchProfileData = async () => {
         try {
-        setLoading(true);
-        const token = await user.getIdToken();
-        const response = await fetch(`/api/users/${user.uid}`, {
+            setLoading(true);
+            setError(null);
+            const token = await user.getIdToken();
+            console.log('Fetching profile data for user:', user.uid);
+            
+            const response = await fetch(`/api/users/${user.uid}`, {
                 headers: {
-            Authorization: `Bearer ${token}`,
-          },
+                    Authorization: `Bearer ${token}`,
+                },
             });
 
             if (!response.ok) {
-                throw new Error('Failed to fetch profile data');
+                const errorData = await response.json();
+                console.error('Profile fetch error:', errorData);
+                throw new Error(errorData.error || 'Failed to fetch profile data');
             }
 
             const data = await response.json();
-        setProfileData(prev => ({
-          ...prev,
+            console.log('Profile data received:', data);
+            
+            setProfileData(prev => ({
+                ...prev,
                 ...data,
-          displayName: data.displayName || user.displayName || '',
-          email: data.email || user.email || '',
-          photoURL: data.photoURL || user.photoURL || '',
-          aboutMe: data.aboutMe || '',
-          favoriteArtists: data.favoriteArtists || '',
-          musicGenres: data.musicGenres || [],
-          socialLinks: data.socialLinks || {
-            twitter: '',
-            github: '',
-            linkedin: '',
-            instagram: '',
-            facebook: '',
-            youtube: ''
-          }
-        }));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load profile');
+                displayName: data.displayName || user.displayName || '',
+                email: data.email || user.email || '',
+                photoURL: data.photoURL || user.photoURL || '',
+                aboutMe: data.aboutMe || '',
+                favoriteArtists: data.favoriteArtists || '',
+                musicGenres: data.musicGenres || [],
+                socialLinks: data.socialLinks || {
+                    twitter: '',
+                    github: '',
+                    linkedin: '',
+                    instagram: '',
+                    facebook: '',
+                    youtube: ''
+                }
+            }));
+        } catch (err) {
+            console.error('Profile fetch error:', err);
+            setError(err instanceof Error ? err.message : 'Failed to load profile');
         } finally {
-        setLoading(false);
+            setLoading(false);
         }
     };
 
