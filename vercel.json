@@ -4,8 +4,8 @@
   "installCommand": "npm install",
   "framework": "nextjs",
   "env": {
-    "MONGODB_URI": "@mongodb_uri",
-    "MONGODB_DB": "@mongodb_db",
+    "MONGODB_URI": "mongodb+srv://admin:David123@cluster0.ihp8o.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",
+    "MONGODB_DB": "musicroom",
     "FIREBASE_PROJECT_ID": "@firebase_project_id",
     "FIREBASE_CLIENT_EMAIL": "@firebase_client_email",
     "FIREBASE_PRIVATE_KEY": "@firebase_private_key",
