@@ -11,11 +11,11 @@ export async function GET(
         
         // Verify Firebase token
         const authHeader = request.headers.get('authorization');
-        console.log('Authorization header present:', !!authHeader);
+        console.log('Authorization header:', authHeader ? 'Present' : 'Missing');
         
         if (!authHeader?.startsWith('Bearer ')) {
             console.error('Invalid authorization header format');
-            return Response.json({ error: 'Unauthorized' }, { status: 401 });
+            return Response.json({ error: 'Unauthorized - Invalid header format' }, { status: 401 });
         }
 
         const token = authHeader.split('Bearer ')[1];
@@ -25,21 +25,28 @@ export async function GET(
         try {
             decodedToken = await auth.verifyIdToken(token);
             console.log('Token verified successfully for user:', decodedToken.uid);
+            
+            // Verify token matches requested user
+            if (decodedToken.uid !== uid) {
+                console.error('Token UID does not match requested UID:', { tokenUid: decodedToken.uid, requestedUid: uid });
+                return Response.json({ error: 'Unauthorized - Token mismatch' }, { status: 401 });
+            }
         } catch (tokenError) {
             console.error('Token verification failed:', tokenError);
-            return Response.json({ error: 'Invalid token' }, { status: 401 });
+            return Response.json({ error: 'Invalid token', details: tokenError instanceof Error ? tokenError.message : 'Unknown error' }, { status: 401 });
         }
 
         // Connect to MongoDB
+        console.log('Connecting to MongoDB...');
         const { db } = await connectToDatabase();
         console.log('Connected to MongoDB, fetching user...');
         
         const user = await db.collection('users').findOne({ uid });
-        console.log('User found in MongoDB:', user ? 'yes' : 'no');
+        console.log('MongoDB query result:', user ? 'User found' : 'User not found');
 
         if (!user) {
             // Create new user document if it doesn't exist
-            console.log('Creating new user document...');
+            console.log('Creating new user document for:', decodedToken.email);
             const newUser = {
                 uid,
                 email: decodedToken.email,
@@ -60,9 +67,14 @@ export async function GET(
                 }
             };
             
-            await db.collection('users').insertOne(newUser);
-            console.log('New user document created');
-            return Response.json(newUser);
+            try {
+                await db.collection('users').insertOne(newUser);
+                console.log('New user document created successfully');
+                return Response.json(newUser);
+            } catch (dbError) {
+                console.error('Failed to create new user document:', dbError);
+                return Response.json({ error: 'Failed to create user profile', details: dbError instanceof Error ? dbError.message : 'Unknown error' }, { status: 500 });
+            }
         }
 
         console.log('Returning existing user data');

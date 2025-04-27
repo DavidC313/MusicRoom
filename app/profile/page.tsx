@@ -41,7 +41,7 @@ export default function Profile() {
     useEffect(() => {
         if (!user) {
             console.log('No user found, redirecting to login');
-            router.push('/login');
+            router.push('/');
             return;
         }
 
@@ -55,9 +55,13 @@ export default function Profile() {
                 const token = await user.getIdToken();
                 console.log('Got ID token:', token ? 'yes' : 'no');
                 
-                // Log the API URL
+                // Log the API URL and request details
                 const apiUrl = `/api/users/${user.uid}`;
-                console.log('Fetching from:', apiUrl);
+                console.log('Making request to:', apiUrl, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    }
+                });
                 
                 const response = await fetch(apiUrl, {
                     headers: {
@@ -65,7 +69,11 @@ export default function Profile() {
                     },
                 });
 
-                console.log('Response status:', response.status);
+                console.log('Response received:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok
+                });
                 
                 if (!response.ok) {
                     const errorData = await response.json();
@@ -80,24 +88,33 @@ export default function Profile() {
                 const data = await response.json();
                 console.log('Profile data received:', data);
                 
-                setProfileData(prev => ({
-                    ...prev,
-                    ...data,
-                    displayName: data.displayName || user.displayName || '',
-                    email: data.email || user.email || '',
-                    photoURL: data.photoURL || user.photoURL || '',
-                    aboutMe: data.aboutMe || '',
-                    favoriteArtists: data.favoriteArtists || '',
-                    musicGenres: data.musicGenres || [],
-                    socialLinks: data.socialLinks || {
-                        twitter: '',
-                        github: '',
-                        linkedin: '',
-                        instagram: '',
-                        facebook: '',
-                        youtube: ''
-                    }
-                }));
+                if (!data) {
+                    console.error('No data received from API');
+                    throw new Error('No data received from API');
+                }
+                
+                setProfileData(prev => {
+                    const newData = {
+                        ...prev,
+                        ...data,
+                        displayName: data.displayName || user.displayName || '',
+                        email: data.email || user.email || '',
+                        photoURL: data.photoURL || user.photoURL || '',
+                        aboutMe: data.aboutMe || '',
+                        favoriteArtists: data.favoriteArtists || '',
+                        musicGenres: data.musicGenres || [],
+                        socialLinks: data.socialLinks || {
+                            twitter: '',
+                            github: '',
+                            linkedin: '',
+                            instagram: '',
+                            facebook: '',
+                            youtube: ''
+                        }
+                    };
+                    console.log('Setting profile data:', newData);
+                    return newData;
+                });
             } catch (err) {
                 console.error('Profile fetch error:', err);
                 setError(err instanceof Error ? err.message : 'Failed to load profile');
