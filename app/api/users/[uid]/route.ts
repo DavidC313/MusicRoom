@@ -7,20 +7,24 @@ export async function GET(
 ): Promise<Response> {
     try {
         const { uid } = context.params;
-        console.log('Fetching user data for:', uid);
+        console.log('GET /api/users/[uid] - Request received for UID:', uid);
         
         // Verify Firebase token
         const authHeader = request.headers.get('authorization');
+        console.log('Authorization header present:', !!authHeader);
+        
         if (!authHeader?.startsWith('Bearer ')) {
-            console.error('No valid authorization header');
+            console.error('Invalid authorization header format');
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const token = authHeader.split('Bearer ')[1];
+        console.log('Token extracted, length:', token.length);
+        
         let decodedToken;
         try {
             decodedToken = await auth.verifyIdToken(token);
-            console.log('Token verified for user:', decodedToken.uid);
+            console.log('Token verified successfully for user:', decodedToken.uid);
         } catch (tokenError) {
             console.error('Token verification failed:', tokenError);
             return Response.json({ error: 'Invalid token' }, { status: 401 });
@@ -31,7 +35,7 @@ export async function GET(
         console.log('Connected to MongoDB, fetching user...');
         
         const user = await db.collection('users').findOne({ uid });
-        console.log('User found:', user ? 'yes' : 'no');
+        console.log('User found in MongoDB:', user ? 'yes' : 'no');
 
         if (!user) {
             // Create new user document if it doesn't exist
@@ -61,6 +65,7 @@ export async function GET(
             return Response.json(newUser);
         }
 
+        console.log('Returning existing user data');
         return Response.json(user);
     } catch (error) {
         console.error('Error in GET /api/users/[uid]:', error);

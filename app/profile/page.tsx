@@ -39,61 +39,75 @@ export default function Profile() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
     useEffect(() => {
-    if (!user) {
+        if (!user) {
+            console.log('No user found, redirecting to login');
             router.push('/login');
-      return;
+            return;
         }
 
-    const fetchProfileData = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const token = await user.getIdToken();
-            console.log('Fetching profile data for user:', user.uid);
-            
-            const response = await fetch(`/api/users/${user.uid}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
+        console.log('User found:', user.uid);
+        const fetchProfileData = async () => {
+            try {
+                setLoading(true);
+                setError(null);
+                
+                // Get the ID token
+                const token = await user.getIdToken();
+                console.log('Got ID token:', token ? 'yes' : 'no');
+                
+                // Log the API URL
+                const apiUrl = `/api/users/${user.uid}`;
+                console.log('Fetching from:', apiUrl);
+                
+                const response = await fetch(apiUrl, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error('Profile fetch error:', errorData);
-                throw new Error(errorData.error || 'Failed to fetch profile data');
-            }
-
-            const data = await response.json();
-            console.log('Profile data received:', data);
-            
-            setProfileData(prev => ({
-                ...prev,
-                ...data,
-                displayName: data.displayName || user.displayName || '',
-                email: data.email || user.email || '',
-                photoURL: data.photoURL || user.photoURL || '',
-                aboutMe: data.aboutMe || '',
-                favoriteArtists: data.favoriteArtists || '',
-                musicGenres: data.musicGenres || [],
-                socialLinks: data.socialLinks || {
-                    twitter: '',
-                    github: '',
-                    linkedin: '',
-                    instagram: '',
-                    facebook: '',
-                    youtube: ''
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('Profile fetch error:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        error: errorData
+                    });
+                    throw new Error(errorData.error || `Failed to fetch profile data (${response.status})`);
                 }
-            }));
-        } catch (err) {
-            console.error('Profile fetch error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to load profile');
-        } finally {
-            setLoading(false);
-        }
-    };
 
-    fetchProfileData();
-  }, [user, router]);
+                const data = await response.json();
+                console.log('Profile data received:', data);
+                
+                setProfileData(prev => ({
+                    ...prev,
+                    ...data,
+                    displayName: data.displayName || user.displayName || '',
+                    email: data.email || user.email || '',
+                    photoURL: data.photoURL || user.photoURL || '',
+                    aboutMe: data.aboutMe || '',
+                    favoriteArtists: data.favoriteArtists || '',
+                    musicGenres: data.musicGenres || [],
+                    socialLinks: data.socialLinks || {
+                        twitter: '',
+                        github: '',
+                        linkedin: '',
+                        instagram: '',
+                        facebook: '',
+                        youtube: ''
+                    }
+                }));
+            } catch (err) {
+                console.error('Profile fetch error:', err);
+                setError(err instanceof Error ? err.message : 'Failed to load profile');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchProfileData();
+    }, [user, router]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
